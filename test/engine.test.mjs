@@ -173,6 +173,37 @@ test('sky strip is 14 days ending today, practiced days marked', () => {
   assert.equal(strip[0].practiced, false);
 });
 
+test('evening idle points at TOMORROW, never a negative countdown', () => {
+  const { end } = townTimes(AUG_NOON);
+  const late = end + 3 * 3600000; // ~9:08 PM
+  const ts = townState(late);
+  assert.equal(ts.state, 'idle');
+  assert.ok(ts.msToStart > 0, 'countdown must be positive');
+  assert.equal(nyDateStr(ts.start), '2026-08-16');
+  assert.equal(nyParts(ts.start).hour, 18);
+  assert.equal(nyParts(ts.start).minute, 2);
+});
+
+test('a short sit in a new month still rolls the month bucket', () => {
+  let s = recordSession(freshStats(), AUG_NOON, 300); // August: 300s
+  const sep = Date.UTC(2026, 8, 2, 16, 0);
+  s = recordSession(s, sep, 10); // 10s in September: uncounted, but…
+  assert.equal(s.monthKey, '2026-09', 'bucket must roll');
+  assert.equal(s.monthSec, 0, 'and must not carry August seconds');
+  assert.equal(s.totalSec, 300, 'lifetime unchanged by the short sit');
+});
+
+test('sky strip walks NY calendar days across DST edges', () => {
+  // Late evening on US spring-forward day 2026 (Mar 8): the strip must
+  // contain 14 distinct consecutive dates including Mar 8, no dupes.
+  const eveningMar8 = nyWallToEpoch(2026, 3, 8, 21, 0);
+  const strip = skyStrip(freshStats(), eveningMar8);
+  const dates = strip.map((d) => d.day);
+  assert.equal(new Set(dates).size, 14, 'no duplicated days');
+  assert.equal(dates[13], '2026-03-08');
+  assert.equal(dates[0], '2026-02-23');
+});
+
 // --------------------------------------------------------------- ambience
 
 test('seasons cover the Vermont year', () => {

@@ -2,7 +2,7 @@
 // opens instantly and works offline. Network-only for Supabase calls.
 // Bump VERSION on every deploy; the new worker waits (no skipWaiting) so
 // an update can never swap files out from under a running session.
-const VERSION = 'lake-breath-v1';
+const VERSION = 'lake-breath-v2';
 const SHELL = [
   './',
   'index.html',
@@ -20,15 +20,24 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
+  // caches.keys() is ORIGIN-wide and this app shares play.btownbrief.com
+  // with the whole arcade — only ever touch our own prefixed caches.
   e.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))),
+      Promise.all(keys
+        .filter((k) => k.startsWith('lake-breath-') && k !== VERSION)
+        .map((k) => caches.delete(k)))),
   );
 });
 
+const SCOPE_PATH = new URL(self.registration.scope).pathname;
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return; // supabase, nav.js: network
+  if (url.origin !== location.origin) return; // supabase etc: network
+  // Same-origin but outside our scope path (nav.js, ticker.js, other
+  // arcade apps' assets): never intercept — fleet fixes must ship live.
+  if (!url.pathname.startsWith(SCOPE_PATH)) return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) =>
       hit || fetch(e.request).then((res) => {

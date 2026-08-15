@@ -43,12 +43,19 @@ function offline(e) {
 
 // ---- presence ---------------------------------------------------------
 
+// When storage is blocked, every visitor must NOT collapse onto one shared
+// id (they'd collide for presence and note rate limits) — fall back to a
+// random per-page identity instead.
+const EPHEMERAL = (() => {
+  try { return crypto.randomUUID(); } catch { return `e${Math.random().toString(36).slice(2)}`; }
+})();
+
 function pid() {
   try {
-    const player = localStorage.getItem('btown-player-id') || 'anon';
+    const player = localStorage.getItem('btown-player-id') || EPHEMERAL;
     return presenceId(player, Date.now());
   } catch {
-    return presenceId('anon', Date.now());
+    return presenceId(EPHEMERAL, Date.now());
   }
 }
 

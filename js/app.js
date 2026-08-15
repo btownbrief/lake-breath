@@ -4,8 +4,8 @@
 
 import {
   TECHNIQUES, phaseAt, breathLevel,
-  townState, townPhaseMs, TOWN,
-  seasonFor, skyPhase,
+  townState, TOWN,
+  seasonFor, skyPhase, nyDateStr, nyMonthKey,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
   presenceLine,
 } from './engine.js';
@@ -21,7 +21,11 @@ const STATS_KEY = 'lakebreath-stats';
 
 // ------------------------------------------------------------- state
 
-let stats = loadStatsFrom(localStorage.getItem(STATS_KEY) || '');
+// localStorage can be blocked (private browsing, storage pressure) — the
+// app must still open; stats just live for the page's lifetime then.
+let stats = loadStatsFrom((() => {
+  try { return localStorage.getItem(STATS_KEY) || ''; } catch { return ''; }
+})());
 let techKey = 'lake';
 let durationSec = 300;
 let session = null; // { t0, tech, seconds, town, lastSegI, counted, presenceTimer, raf }
@@ -101,6 +105,8 @@ const TECH_TAGS = {
   porch: 'eyes open, no counting — for when breath-focus isn’t it',
 };
 
+const durLabel = (secs) => secs < 180 ? `${secs} sec` : `${Math.round(secs / 60)} min`;
+
 function pickTechnique(key) {
   techKey = key;
   const tech = TECHNIQUES[key];
@@ -108,20 +114,26 @@ function pickTechnique(key) {
     btn.setAttribute('aria-pressed', String(btn.dataset.tech === key));
   }
   $('technique-tag').textContent = TECH_TAGS[key];
-  // durations follow the technique
-  const durs = tech.durations;
-  const durChips = document.querySelectorAll('#duration-chips .chip');
-  for (const btn of durChips) {
-    const secs = parseInt(btn.dataset.mins, 10) * 60;
-    btn.hidden = !durs.includes(secs);
+  // duration chips are rebuilt from the technique's real options — Quick
+  // Sigh's 90s and Porch's single length must be representable, not faked
+  const wrap = $('duration-chips');
+  wrap.innerHTML = '';
+  for (const secs of tech.durations) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = durLabel(secs);
+    b.dataset.secs = String(secs);
+    b.addEventListener('click', () => pickDuration(secs));
+    wrap.append(b);
   }
-  if (!durs.includes(durationSec)) pickDuration(tech.defaultDuration);
+  wrap.hidden = tech.durations.length < 2;
+  pickDuration(tech.durations.includes(durationSec) ? durationSec : tech.defaultDuration);
 }
 
 function pickDuration(secs) {
   durationSec = secs;
   for (const btn of document.querySelectorAll('#duration-chips .chip')) {
-    btn.setAttribute('aria-pressed', String(parseInt(btn.dataset.mins, 10) * 60 === secs));
+    btn.setAttribute('aria-pressed', String(parseInt(btn.dataset.secs, 10) === secs));
   }
 }
 
@@ -159,7 +171,11 @@ const PHASE_WORDS = {
 };
 
 async function grabWakeLock() {
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
+  try {
+    const lock = await navigator.wakeLock?.request('screen');
+    // the session may have ended while the promise was in flight
+    if (session) wakeLock = lock; else lock?.release();
+  } catch { wakeLock = null; }
 }
 function dropWakeLock() {
   try { wakeLock?.release(); } catch { /* fine */ }
@@ -167,7 +183,9 @@ function dropWakeLock() {
 }
 
 function startSession({ town = false } = {}) {
-  const tech = TECHNIQUES[techKey === 'porch' || !town ? techKey : 'lake'];
+  // The 8:02 is always the synchronized Lake Breath — "the whole town, one
+  // inhale" is the contract, and Porch has no shared timeline.
+  const tech = town ? TECHNIQUES.lake : TECHNIQUES[techKey];
   const now = Date.now();
   let t0 = now;
   let seconds = durationSec;
@@ -199,7 +217,7 @@ function startSession({ town = false } = {}) {
   });
 
   $('thumb-hint').textContent = haptics.tier() === 'switch'
-    ? 'rest a thumb here — press as the water rises, and feel it tick'
+    ? 'tap here with the turn of each breath — feel it tick'
     : 'rest a thumb here — press as the water rises';
   $('phase-sub').textContent = session.town ? 'The 8:02 — the whole town, one clock' :
     (techKey === 'porch' ? PORCH_INTRO : '');
@@ -212,6 +230,9 @@ function loop() {
   const now = Date.now();
   const t = now - session.t0;
   const { tech } = session;
+
+  // terminal boundary first — never cue a fresh inhale right under the bell
+  if (t >= session.seconds * 1000) { finishSession(true); return; }
 
   if (tech.steps) {
     // Front Porch: a grounding sequence, not a pacer.
@@ -251,7 +272,6 @@ function loop() {
     ? `${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')}`
     : '';
 
-  if (t >= session.seconds * 1000) { finishSession(true); return; }
   session.raf = requestAnimationFrame(loop);
 }
 
@@ -270,23 +290,29 @@ function finishSession(completed) {
   const s = session;
   teardownSession();
   session = null;
-  const practicedSec = completed
-    ? s.seconds
-    : Math.min(s.seconds, Math.max(0, Math.round((Date.now() - Math.max(s.t0, s.startedAt)) / 1000)));
+  // Credit = time actually present, never the scheduled length — a 6:07
+  // joiner to the 8:02 gets their real minute, not the town's six. Clamped
+  // to the session's own end so a clock jump can't inflate it either.
+  const endClock = Math.min(Date.now(), s.t0 + s.seconds * 1000);
+  const practicedSec = Math.min(
+    s.seconds,
+    Math.max(0, Math.round((endClock - Math.max(s.t0, s.startedAt)) / 1000)),
+  );
   if (completed) { audio.unlock(); audio.bell(); haptics.phaseTurn('bell'); }
   setBreathVar(0);
 
   const before = mapleStage(stats.daysPracticed);
   stats = recordSession(stats, Date.now(), practicedSec);
   saveStats();
-  net.submitMonthSeconds(stats.monthSec);
+  // only ever pour this device's bucket into the month it belongs to
+  if (stats.monthKey === nyMonthKey(Date.now())) net.submitMonthSeconds(stats.monthSec);
   const after = mapleStage(stats.daysPracticed);
 
-  // ---- end screen
-  const mins = Math.max(1, Math.round(practicedSec / 60));
-  $('end-big').textContent = practicedSec >= 30
+  // ---- end screen (honest units: under a minute says seconds)
+  const mins = Math.round(practicedSec / 60);
+  $('end-big').textContent = practicedSec >= 60
     ? `That’s ${mins} quiet ${mins === 1 ? 'minute' : 'minutes'}.`
-    : 'That’s okay.';
+    : (practicedSec >= 30 ? `That’s ${practicedSec} quiet seconds.` : 'That’s okay.');
   $('end-sub').textContent = practicedSec >= 30
     ? (s.town ? 'You breathed with the whole town tonight.' : '')
     : 'Even sitting down counts for something. The lake will be here.';
@@ -311,9 +337,13 @@ function finishSession(completed) {
   $('note-sent').textContent = '';
   show('end');
 
-  // first-ever completed session → offer the anchor, gently
-  if (stats.sessions === 1 && !stats.anchor && practicedSec >= 30) {
-    setTimeout(() => { $('anchor-sheet').dataset.open = 'true'; }, 1600);
+  // first fully completed session → offer the anchor, gently
+  if (stats.sessions === 1 && !stats.anchor && completed) {
+    setTimeout(() => {
+      const sheet = $('anchor-sheet');
+      sheet.dataset.open = 'true';
+      sheet.inert = false;
+    }, 1600);
   }
 }
 
@@ -330,21 +360,33 @@ function agoLabel(iso) {
 async function refreshWall() {
   const list = $('wall-list');
   const rows = await net.fetchWall();
+  list.innerHTML = '';
   if (!rows.length) {
-    list.innerHTML = '<li class="empty">The wall is quiet right now. Leave the first note?</li>';
-  } else {
-    list.innerHTML = rows.slice(0, 8).map((r) => {
-      const p = presetById(r.preset);
-      const text = p ? `${p.text} ${p.emoji}` : (r.body || '');
-      return `<li><span>${text}</span><span class="when">${agoLabel(r.at)}</span></li>`;
-    }).join('');
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'The wall is quiet right now. Leave the first note?';
+    list.append(li);
+    return;
+  }
+  // Always textContent, never markup — future freeform notes are user text.
+  for (const r of rows.slice(0, 8)) {
+    const p = presetById(r.preset);
+    const li = document.createElement('li');
+    const text = document.createElement('span');
+    text.textContent = p ? `${p.text} ${p.emoji}` : (r.body || '');
+    const when = document.createElement('span');
+    when.className = 'when';
+    when.textContent = agoLabel(r.at);
+    li.append(text, when);
+    list.append(li);
   }
 }
 
 function buildNotePresets() {
   const wrap = $('note-presets');
-  // a rotating handful so the sheet stays small; different picks each day
-  const day = new Date().getDate();
+  // a rotating handful so the sheet stays small; different picks each
+  // Burlington day (product time is NY everywhere)
+  const day = parseInt(nyDateStr(Date.now()).slice(8), 10);
   const picks = [...NOTE_PRESETS].filter((_, i) => (i + day) % 3 !== 0).slice(0, 6);
   wrap.innerHTML = '';
   for (const p of picks) {
@@ -355,7 +397,7 @@ function buildNotePresets() {
       b.disabled = true;
       const ok = await net.sendNote(p.id);
       $('note-sent').textContent = ok
-        ? 'Sent to the town. Someone will read that tonight.'
+        ? 'Sent. It’s up on the town wall for the next two days.'
         : 'Couldn’t send right now (one note every couple hours, or the lake is offline).';
       if (ok) refreshWall();
     });
@@ -410,13 +452,13 @@ function buildBench() {
 function wireThumbZone() {
   const zone = $('thumb-zone');
   const setHeld = (held) => { zone.dataset.held = String(held); };
-  const sw = haptics.mountSwitch(zone, () => setHeld(true), () => setHeld(false));
-  if (!sw) {
-    zone.addEventListener('pointerdown', (e) => { e.preventDefault(); setHeld(true); });
-    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
-      zone.addEventListener(ev, () => setHeld(false));
-    }
+  // pointer events always drive the visual held state; on iOS the native
+  // switch overlay additionally supplies a real system tick per tap
+  zone.addEventListener('pointerdown', () => setHeld(true));
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+    zone.addEventListener(ev, () => setHeld(false));
   }
+  haptics.mountSwitch(zone, () => { /* the tick is the feedback */ });
 }
 
 // -------------------------------------------------- lifecycle & wiring
@@ -427,19 +469,18 @@ function wire() {
   for (const btn of document.querySelectorAll('#technique-chips .chip')) {
     btn.addEventListener('click', () => pickTechnique(btn.dataset.tech));
   }
-  for (const btn of document.querySelectorAll('#duration-chips .chip')) {
-    btn.addEventListener('click', () => pickDuration(parseInt(btn.dataset.mins, 10) * 60));
-  }
 
   $('begin').addEventListener('click', () => startSession());
   $('town-chip').addEventListener('click', () => {
     const ts = townState(Date.now());
     if (ts.state === 'live' || ts.state === 'lobby') startSession({ town: true });
-    else {
+    else if (ts.state === 'done') {
+      toast('Tonight’s 8:02 just wrapped. Same time tomorrow.');
+    } else {
       const mins = Math.round(ts.msToStart / 60000);
       toast(mins > 90
-        ? 'Tonight at 6:02 — six minutes, the whole town on the same inhale.'
-        : `Doors open at 5:57 — ${mins} minutes from now.`);
+        ? 'Every evening at 6:02 — six minutes, the whole town on the same inhale.'
+        : `Doors open at 5:57 — ${mins} ${mins === 1 ? 'minute' : 'minutes'} from now.`);
     }
   });
 
@@ -460,7 +501,12 @@ function wire() {
 
   $('reset-history').addEventListener('click', () => {
     if (confirm('Clear your practice history on this device? The town’s totals keep what you already contributed.')) {
-      stats = freshStats(); saveStats(); refreshShore(); drawMaple();
+      // The month ledger survives the reset invisibly: the backend keeps
+      // each player's greatest cumulative-seconds value, so zeroing it here
+      // would make post-reset practice vanish until the new total caught up.
+      const keep = { monthKey: stats.monthKey, monthSec: stats.monthSec };
+      stats = { ...freshStats(), ...keep };
+      saveStats(); refreshShore(); drawMaple();
     }
   });
 
@@ -468,7 +514,9 @@ function wire() {
     btn.addEventListener('click', () => {
       const a = btn.dataset.anchor;
       if (a) { stats.anchor = a; saveStats(); toast(`${a}, you breathe. We’ll hold you to nothing.`); }
-      $('anchor-sheet').dataset.open = 'false';
+      const sheet = $('anchor-sheet');
+      sheet.dataset.open = 'false';
+      sheet.inert = true;
       refreshFront();
     });
   }
@@ -477,7 +525,7 @@ function wire() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && session) {
       finishSession(false);
-      toast('Session paused when the screen went away — partial minutes counted.');
+      toast('Session ended when the screen went away.');
     } else if (!document.hidden) {
       paintAmbience();
     }
@@ -497,8 +545,9 @@ function wire() {
   buildNotePresets();
   buildBench();
 
-  // ambience keeps pace with the real sky
-  setInterval(() => { if (!session) { paintAmbience(); refreshFront(); } }, 120000);
+  // ambience + the 8:02 chip keep pace with the real clock (30s so the
+  // lobby/live/done transitions never look stale for long)
+  setInterval(() => { if (!session && document.body.dataset.view === 'front') refreshFront(); }, 30000);
 
   // idle breath: the lake breathes gently on the front door too
   (function idle() {
@@ -519,6 +568,16 @@ if ('serviceWorker' in navigator) {
 
 wire();
 pickTechnique('lake');
-pickDuration(300);
 refreshFront();
 show('front');
+
+// A submit that died with the tab (or offline) retries here: the score is
+// the cumulative month total, so re-sending the current value heals any gap.
+if (stats.monthSec > 0 && stats.monthKey === nyMonthKey(Date.now())) {
+  net.submitMonthSeconds(stats.monthSec);
+}
+window.addEventListener('online', () => {
+  if (stats.monthSec > 0 && stats.monthKey === nyMonthKey(Date.now())) {
+    net.submitMonthSeconds(stats.monthSec);
+  }
+});

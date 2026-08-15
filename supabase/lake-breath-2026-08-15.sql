@@ -23,6 +23,13 @@
 --
 -- Security model matches the fleet: RLS locks tables completely; the
 -- public anon key only moves through the security-definer functions.
+--
+-- Honest threat model: like every arcade metric, these are SOFT numbers.
+-- The anon key is public by design, so a determined prankster can mint
+-- identities and inflate presence or town minutes. The per-player cap,
+-- rate limits, and preset validation stop casual mischief; they do not
+-- stop Sybils. That's an accepted tradeoff for a friendly-town product —
+-- never present these numbers as integrity-protected.
 
 -- ---------------------------------------------------------------- tables
 
@@ -35,6 +42,9 @@ create table if not exists public.lb_presence (
 
 create index if not exists lb_presence_seen
   on public.lb_presence (app, last_seen);
+-- the opportunistic sweep deletes by age alone, so it needs its own index
+create index if not exists lb_presence_stale
+  on public.lb_presence (last_seen);
 
 alter table public.lb_presence enable row level security;
 revoke all on table public.lb_presence from anon, authenticated;
@@ -51,6 +61,11 @@ create table if not exists public.lb_notes (
 
 create index if not exists lb_notes_wall
   on public.lb_notes (app, approved, created_at desc);
+-- the per-neighbor rate check and the age sweep each want their own path
+create index if not exists lb_notes_rate
+  on public.lb_notes (app, pid, created_at desc);
+create index if not exists lb_notes_stale
+  on public.lb_notes (created_at);
 
 alter table public.lb_notes enable row level security;
 revoke all on table public.lb_notes from anon, authenticated;
@@ -120,6 +135,9 @@ begin
   if p_preset is null or p_preset < 1 or p_preset > lb_note_preset_max() then
     raise exception 'bad_preset';
   end if;
+  -- serialize per (app,pid) so two racing requests can't both pass the
+  -- rate check before either inserts
+  perform pg_advisory_xact_lock(hashtext(p_app || '|' || p_pid));
   if exists (select 1 from lb_notes
              where app = p_app and pid = p_pid
                and created_at > now() - interval '2 hours') then

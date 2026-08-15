@@ -290,6 +290,7 @@ body[data-view="session"] .btabout { display: none; }
 /* Native appearance is what makes the tick fire; opacity hides it while
    the control stays genuinely itself. The label stretches the hit area. */
 .thumb-zone .thumb-switch input { opacity: 0.02; transform: scale(2.4); }
+.thumb-zone .thumb-switch:focus-within { outline: 2px solid var(--gold); outline-offset: 4px; border-radius: 24px; }
 
 .session-exit { margin-bottom: max(8px, env(safe-area-inset-bottom)); }
 

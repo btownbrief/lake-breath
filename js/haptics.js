@@ -47,13 +47,18 @@ export function stop() {
 // ---- Tier 2: the iOS native-switch experiment ------------------------
 
 // Mounts a genuine switch inside the touch zone. It keeps native
-// appearance (restyling kills the haptic) but is visually hidden by
-// opacity inside an overflow container; hit-area is stretched via the
-// label. It is ALSO a real accessible control: labeled, focusable, and
-// its checked state genuinely mirrors "thumb down".
-// If the platform ever stops ticking, nothing breaks — the control still
-// just works as the press target.
-export function mountSwitch(zoneEl, onDown, onUp) {
+// appearance (restyling kills the haptic) but is visually faded inside an
+// overflow container; hit-area is stretched via the label. It is ALSO a
+// real accessible control: labeled and focusable.
+//
+// Honesty about what iOS gives us: a checkbox activates once per full
+// tap (on release), so a long press-and-hold yields ONE tick, not a
+// down-tick and an up-tick. The interaction copy says "tap with the turn
+// of the breath" on iOS for exactly this reason. Visual held-state is
+// driven separately by pointer events in app.js; this control only
+// supplies the real system tick per genuine tap. If the platform ever
+// stops ticking, nothing breaks.
+export function mountSwitch(zoneEl, onTick) {
   if (!isIOS || canVibrate) return null;
   const label = document.createElement('label');
   label.className = 'thumb-switch';
@@ -63,16 +68,9 @@ export function mountSwitch(zoneEl, onDown, onUp) {
   input.setAttribute('switch', '');
   const sr = document.createElement('span');
   sr.className = 'sr-only';
-  sr.textContent = 'Thumb on the water — press and hold while the water rises, let go as it falls';
+  sr.textContent = 'Tap the water with the turn of each breath';
   label.append(input, sr);
   zoneEl.append(label);
-  // pointerdown → check (tick), pointerup → uncheck (tick). These are the
-  // user's own contacts on a native control — exactly what iOS permits.
-  input.addEventListener('change', () => {
-    if (input.checked) onDown(); else onUp();
-  });
-  return {
-    clear() { input.checked = false; },
-    el: label,
-  };
+  input.addEventListener('change', () => onTick());
+  return { el: label };
 }

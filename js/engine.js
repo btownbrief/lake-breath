@@ -165,12 +165,26 @@ export function townTimes(ms) {
 }
 
 // state: 'idle' (most of the day) | 'lobby' | 'live' | 'done' (just ended,
-// linger 10 min so late arrivals see what happened)
+// linger 10 min so late arrivals see what happened). After the done window
+// the idle state points at TOMORROW's 6:02, never into the past.
 export function townState(ms) {
   const t = townTimes(ms);
   if (ms >= t.lobby && ms < t.start) return { state: 'lobby', ...t, msToStart: t.start - ms };
   if (ms >= t.start && ms < t.end) return { state: 'live', ...t, into: ms - t.start };
   if (ms >= t.end && ms < t.end + 600000) return { state: 'done', ...t };
+  if (ms >= t.end) {
+    // tomorrow's date in NY (start + 24h lands on the next NY calendar day
+    // at 17:02–19:02 regardless of DST; we only need its date parts)
+    const p = nyParts(t.start + 24 * 3600000);
+    const start = nyWallToEpoch(p.year, p.month, p.day, TOWN.hour, TOWN.minute);
+    return {
+      state: 'idle',
+      lobby: start - TOWN.lobbyMinutes * 60000,
+      start,
+      end: start + TOWN.seconds * 1000,
+      msToStart: start - ms,
+    };
+  }
   return { state: 'idle', ...t, msToStart: t.start - ms };
 }
 
@@ -244,10 +258,13 @@ export function recordSession(stats, endMs, seconds) {
   const day = nyDateStr(endMs);
   const mk = nyMonthKey(endMs);
   const sec = Math.max(0, Math.round(seconds));
+  // Normalize the month bucket BEFORE any early return — otherwise a short
+  // September sit could leave August's monthSec in place and the next
+  // submit would pour last month's seconds into the new server bucket.
+  if (s.monthKey !== mk) { s.monthKey = mk; s.monthSec = 0; }
   if (sec < 30) return s; // under half a minute: it happened, we don't count it
   s.totalSec += sec;
   s.sessions += 1;
-  if (s.monthKey !== mk) { s.monthKey = mk; s.monthSec = 0; }
   s.monthSec += sec;
   if (s.lastDay !== day) {
     s.lastDay = day;
@@ -279,10 +296,13 @@ export function mapleStage(daysPracticed) {
 // practice? Missed days aren't marked "failed" — they're just sky.
 export function skyStrip(stats, nowMs) {
   const days = [];
-  const DAY = 86400000;
   const have = new Set(stats.last14);
+  // Walk NY CALENDAR days, not elapsed 24h periods — around DST changes
+  // those disagree. Date.UTC normalizes negative day-of-month; noon-ish UTC
+  // is always the same NY calendar date.
+  const p = nyParts(nowMs);
   for (let i = 13; i >= 0; i--) {
-    const d = nyDateStr(nowMs - i * DAY);
+    const d = nyDateStr(Date.UTC(p.year, p.month - 1, p.day - i, 17, 0, 0));
     days.push({ day: d, practiced: have.has(d), today: i === 0 });
   }
   return days;
