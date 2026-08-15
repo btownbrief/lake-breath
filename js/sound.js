@@ -288,6 +288,24 @@ export function stroke() {
   osc.start(t); osc.stop(t + 0.55);
 }
 
+// Endings ring for a long time on purpose (the gong takes twelve seconds
+// to go). If a new sit starts inside that tail, the tail belongs to the
+// last sit, not this one, so we let it go gently rather than cutting it.
+let tails = [];
+export function stopTails() {
+  const list = tails;
+  tails = [];
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  for (const { osc, gain } of list) {
+    try {
+      gain.gain.cancelScheduledValues(t);
+      gain.gain.setTargetAtTime(0.0001, t, 0.12);
+      osc.stop(t + 0.6);
+    } catch { /* already finished; fine */ }
+  }
+}
+
 // The bowl: inharmonic partials with long decays — the session's receipt.
 export function bowl() {
   if (!ctx || !enabled || ctx.state !== 'running') return;
@@ -301,6 +319,7 @@ export function bowl() {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g).connect(verb);
     osc.start(t); osc.stop(t + dur + 0.2);
+    tails.push({ osc, gain: g });
   }
 }
 
@@ -325,6 +344,7 @@ export function gong() {
     g.gain.exponentialRampToValueAtTime(0.0001, t + swell + hold + decay);
     osc.connect(g).connect(verb);
     osc.start(t); osc.stop(t + swell + hold + decay + 0.3);
+    tails.push({ osc, gain: g });
   }
 }
 

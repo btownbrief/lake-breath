@@ -7,7 +7,7 @@ import {
   townState, TOWN,
   seasonFor, skyPhase, nyParts, nyMonthKey, dailyIndex,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
-  presenceLine, paddleCadence, paddleTally, driftPhrase,
+  presenceLine, freshPaddle, paddleStroke, freshSteady, steadyStep, driftPhrase,
 } from './engine.js';
 import {
   presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
@@ -115,8 +115,26 @@ function toast(msg) {
   toast._t = setTimeout(() => { el.dataset.show = 'false'; }, 3000);
 }
 
+// Touching the water always ripples, in every practice. The first time
+// somebody does that mid-breath we say once, quietly, that there is a whole
+// practice built on it. Once ever, then never again.
+const PADDLE_HINT_KEY = 'lakebreath-paddle-hint';
+function maybeHintPaddle(tech) {
+  if (tech.steps || tech.kind) return; // breathing practices only
+  try {
+    if (localStorage.getItem(PADDLE_HINT_KEY)) return;
+    localStorage.setItem(PADDLE_HINT_KEY, '1');
+  } catch { return; } // no storage means no way to keep the promise of "once"
+  toast('Every tap ripples. Paddle makes a whole practice of it.');
+}
+
 function openSheet(id) { const s = $(id); s.dataset.open = 'true'; s.inert = false; }
-function closeSheet(id) { const s = $(id); s.dataset.open = 'false'; s.inert = true; }
+function closeSheet(id) {
+  const s = $(id);
+  s.dataset.open = 'false';
+  s.inert = true;
+  if (id === 'practice-sheet') cancelMinuteDial();
+}
 function closeAllSheets() {
   for (const s of document.querySelectorAll('.sheet')) { s.dataset.open = 'false'; s.inert = true; }
 }
@@ -267,6 +285,10 @@ async function refreshHome() {
     if (line && document.body.dataset.view === 'front') {
       const [num, ...rest] = line.split(' ');
       ug.innerHTML = `<b>${num}</b> ${rest.join(' ')} right now`;
+    } else if (!stats.lastPaddle && dailyIndex(now, 3) === 0) {
+      // Nothing else to say, and they have never paddled. Roughly one day
+      // in three, the same day for everybody in town, we mention it.
+      ug.textContent = 'Try Paddle. Tap a slow rhythm on the water and let your mind wander.';
     } else if (stats.anchor) {
       ug.innerHTML = `<i>${stats.anchor}, I breathe.</i> Breathe anytime; at 8:02 the town breathes together.`;
     } else {
@@ -305,12 +327,28 @@ function buildPracticePicks() {
 
 // ------------------------------------------------------ practice sheet
 
+// The dial's Safari fallback fires 160ms after the last scroll event, which
+// is long enough for the sheet to have been rebuilt or closed and another
+// practice chosen. A stale callback that still ran would write ITS minutes
+// into the shared durationSec and hand, say, Quick Sigh an 11-minute
+// length. So every dial carries a generation: the moment one is replaced or
+// its sheet closes, the old dial's pending commit becomes a no-op.
+let dialGen = 0;
+let dialSettle = 0;
+function cancelMinuteDial() {
+  clearTimeout(dialSettle);
+  dialSettle = 0;
+  dialGen += 1;
+}
+
 // Just Sit's minute dial: a row of numbers you scroll, the centred one
 // being the choice. A wheel asks "how long feels right" instead of
 // offering three answers somebody else picked. Snap does the deciding,
 // scrollend (or a timeout, for Safari) does the committing, and the arrow
 // keys step a minute for anyone not using a thumb.
 function buildMinuteDial(tech) {
+  cancelMinuteDial();
+  const gen = dialGen;
   const dial = document.createElement('div');
   dial.className = 'minute-dial';
   dial.tabIndex = 0;
@@ -354,7 +392,12 @@ function buildMinuteDial(tech) {
     }
     return best;
   };
+  // Alive = this is still the current dial, it is still in the document,
+  // and Just Sit is still the chosen practice. Anything else and the
+  // callback belongs to a screen that no longer exists.
+  const alive = () => gen === dialGen && dial.isConnected && techKey === 'timer';
   const commit = () => {
+    if (!alive()) return;
     const mins = centered();
     if (mins === sitMins() && durationSec === mins * 60) { mark(mins); return; }
     setSitMins(mins);
@@ -363,6 +406,7 @@ function buildMinuteDial(tech) {
     buildPracticePicks();
   };
   const step = (delta) => {
+    if (!alive()) return;
     const next = Math.min(tech.maxMinutes, Math.max(tech.minMinutes, sitMins() + delta));
     setSitMins(next);
     durationSec = next * 60;
@@ -371,19 +415,19 @@ function buildMinuteDial(tech) {
     buildPracticePicks();
   };
 
-  let settle = 0;
   dial.addEventListener('scroll', () => {
-    clearTimeout(settle);
-    settle = setTimeout(commit, 160); // Safari has no scrollend yet
+    if (!alive()) return;
+    clearTimeout(dialSettle);
+    dialSettle = setTimeout(commit, 160); // Safari has no scrollend yet
   }, { passive: true });
-  dial.addEventListener('scrollend', () => { clearTimeout(settle); commit(); });
+  dial.addEventListener('scrollend', () => { clearTimeout(dialSettle); commit(); });
   dial.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
     else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); step(1); }
   });
   track.addEventListener('click', (e) => {
     const el = e.target instanceof Element ? e.target.closest('.dial-min') : null;
-    if (!el) return;
+    if (!el || !alive()) return;
     const mins = parseInt(el.dataset.min, 10);
     setSitMins(mins); durationSec = mins * 60;
     mark(mins); centerOn(mins, true); buildPracticePicks();
@@ -396,6 +440,7 @@ function buildMinuteDial(tech) {
 
 function buildPracticeSheet() {
   const wrap = $('practice-rows');
+  cancelMinuteDial(); // the old dial is about to be detached
   wrap.innerHTML = '';
   for (const [key, tech] of Object.entries(TECHNIQUES)) {
     if (key === 'still' && !still.supported()) continue;
@@ -484,6 +529,9 @@ async function startSessionInner({ town: isTown = false } = {}) {
     if (!ok) { toast('Steady needs the motion sensor, and this device didn’t offer one. Try another practice.'); return; }
   }
   sound.unlock();
+  // "Again" can start a new sit while the last gong is still ringing its
+  // twelve second tail. The new session gets its own silence.
+  sound.stopTails();
   const isBreathing = !tech.steps && !tech.kind;
   if (isBreathing) {
     sound.voiceStart();
@@ -495,9 +543,12 @@ async function startSessionInner({ town: isTown = false } = {}) {
     key, tech, t0, seconds, town: isTown,
     startedAt: now, lastSegI: -1, porchStep: -1,
     stillSec: 0, drifts: 0, lastT: performance.now(),
-    // Paddle: taps come in from the window listener, gaps get judged at
-    // the end by the pure tally. cadence null = they haven't set one yet.
-    strokes: 0, gaps: [], cadence: null, lastTap: 0,
+    // Steady's accounting lives in the engine's state machine; the two
+    // numbers below it are just what the meter lines read off.
+    steady: freshSteady(),
+    // Paddle: taps come in from the window listener and are judged as they
+    // land, against the cadence current at that moment.
+    paddle: freshPaddle(), lastTap: 0,
     presenceTimer: setInterval(async () => {
       const n = await net.beat();
       if (session) $('presence-live').textContent = presenceLine(n ?? 0) || '';
@@ -574,21 +625,12 @@ function sessionFrame(nowP) {
     const inRing = Math.hypot(bx, by) <= STEADY_RING;
     bubble = { x: bx, y: by, r: STEADY_RING, inRing };
 
-    if (inRing) {
-      s.stillSec += dt;
-      s.outSince = 0; s.driftCounted = false;
-    } else {
-      if (!s.outSince) s.outSince = nowP;
-      // one drift per departure, and only once it's a real one (>1s out),
-      // with a debounce so hovering on the line can't rack up a score
-      if (!s.driftCounted && nowP - s.outSince > 1000 && nowP - (s.lastDrift || -9999) > 2500) {
-        s.drifts += 1; s.lastDrift = nowP; s.driftCounted = true;
-      }
-    }
-    // picking the phone up is a drift too, whatever the bubble says
-    if (churn > 0.5 && nowP - (s.lastDrift || -9999) > 2500) {
-      s.drifts += 1; s.lastDrift = nowP; s.driftCounted = true;
-    }
+    // All the accounting is the engine's: home time needs the phone
+    // genuinely flat and the lake calm as well as the bubble in the ring,
+    // and a departure or a pickup is ONE drift however long it runs.
+    s.steady = steadyStep(s.steady, { inRing, flat: tilt.flat, churn, dt });
+    s.stillSec = s.steady.centeredSec;
+    s.drifts = s.steady.drifts;
 
     $('still-meter').textContent = `home ${fmt(s.stillSec)}`;
     $('drift-line').textContent = s.drifts ? `drifts: ${s.drifts}` : '';
@@ -636,18 +678,14 @@ function sessionFrame(nowP) {
 function paddleTap(xUv, yUv) {
   const s = session;
   const nowP = performance.now();
-  s.strokes += 1;
-  if (s.lastTap) {
-    const gap = nowP - s.lastTap;
-    s.gaps.push(gap);
-    s.cadence = paddleCadence(s.cadence, gap);
-  }
+  // judged as it lands, against the tempo they are keeping right now
+  s.paddle = paddleStroke(s.paddle, s.lastTap ? nowP - s.lastTap : null);
   s.lastTap = nowP;
   // a tap above the waterline still lands ON the water, just below itself:
   // the stroke has to leave a mark or the practice has no answer
   scene.ripple(xUv, Math.max(HORIZON + 0.02, yUv), 1);
   sound.stroke();
-  $('still-meter').textContent = `stroke ${s.strokes}`;
+  $('still-meter').textContent = `stroke ${s.paddle.strokes}`;
 }
 
 let lastRemainText = '';
@@ -685,10 +723,17 @@ function steadyReceipt(s, practicedSec, last) {
   return lines.join(' ');
 }
 
+// The denominator is the number of gaps that were actually judged, not the
+// number of taps: the first stroke sets the tempo and cannot be off it, so
+// four perfect taps read as three of three and not as a miss.
+const judged = (t) => (t.judgedGaps != null ? t.judgedGaps : Math.max(0, (t.strokes || 0) - 1));
+
 function paddleReceipt(tally, last) {
   if (!tally || !tally.strokes) return 'No strokes this time. The water waits.';
-  const lines = [`You kept ${tally.onRhythm} of ${tally.strokes} strokes on rhythm. Longest run: ${tally.longestRun}.`];
-  if (last) lines.push(`Last time: ${last.onRhythm} of ${last.strokes}, longest run ${last.longestRun}.`);
+  const n = judged(tally);
+  if (!n) return 'One stroke this time. That is where every rhythm starts.';
+  const lines = [`You kept ${tally.onRhythm} of ${n} strokes on rhythm. Longest run: ${tally.longestRun}.`];
+  if (last) lines.push(`Last time: ${last.onRhythm} of ${judged(last)}, longest run ${last.longestRun}.`);
   return lines.join(' ');
 }
 
@@ -718,8 +763,8 @@ function finishSession(completed) {
 
   const before = mapleStage(stats.daysPracticed);
   const lastSteady = stats.lastSteady, lastPaddle = stats.lastPaddle;
-  const tally = s.key === 'paddle'
-    ? paddleTally(s.gaps, s.cadence || s.tech.cadenceMs) : null;
+  // nothing is re-judged here: the tally was built stroke by stroke
+  const tally = s.key === 'paddle' ? s.paddle : null;
   stats = recordSession(stats, Date.now(), practicedSec);
   if (s.key === 'still' && practicedSec >= 30) {
     if (s.stillSec > (stats.glassBest || 0)) stats.glassBest = Math.round(s.stillSec);
@@ -729,7 +774,10 @@ function finishSession(completed) {
   }
   if (s.key === 'paddle' && practicedSec >= 30) {
     if (tally.longestRun > (stats.paddleBestRun || 0)) stats.paddleBestRun = tally.longestRun;
-    stats.lastPaddle = { ...tally, totalSec: practicedSec };
+    stats.lastPaddle = {
+      strokes: tally.strokes, judgedGaps: tally.judgedGaps, onRhythm: tally.onRhythm,
+      longestRun: tally.longestRun, drifts: tally.drifts, totalSec: practicedSec,
+    };
   }
   saveStats();
   if (stats.monthKey === nyMonthKey(Date.now())) net.submitMonthSeconds(stats.monthSec);
@@ -769,8 +817,7 @@ function finishSession(completed) {
     more.href = '#'; more.textContent = 'why we tell you this';
     more.addEventListener('click', (e) => {
       e.preventDefault();
-      const bench = $('bench');
-      bench.dataset.open = 'true'; bench.inert = false;
+      openBench();
     });
     plaque.append(more);
     stats.plaque += 1;
@@ -913,12 +960,30 @@ function maybeShowGuide() {
 
 // -------------------------------------------------------------- bench
 
+// Open Field Notes, optionally scrolled to one entry. inert has to come off
+// BEFORE the scroll, or the browser has nothing to scroll to.
+function openBench(noteId) {
+  const bench = $('bench');
+  bench.dataset.open = 'true';
+  bench.inert = false;
+  if (!noteId) return;
+  const target = document.getElementById(noteId);
+  if (!target) return;
+  requestAnimationFrame(() => {
+    target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+}
+
 function buildBench() {
   $('bench-notes').innerHTML = FIELD_NOTES.map((n) =>
     `<h3></h3><p></p>`).join('');
   const hs = $('bench-notes').querySelectorAll('h3');
   const ps = $('bench-notes').querySelectorAll('p');
-  FIELD_NOTES.forEach((n, i) => { hs[i].textContent = n.title; ps[i].textContent = n.body; });
+  FIELD_NOTES.forEach((n, i) => {
+    hs[i].textContent = n.title;
+    if (n.id) hs[i].id = n.id; // the mantra line links to one of these
+    ps[i].textContent = n.body;
+  });
   fetch('data/builder-note.json').then((r) => r.ok ? r.json() : null).then((note) => {
     if (note && note.body) {
       $('from-builder').hidden = false;
@@ -1020,10 +1085,10 @@ function wire() {
   $('send-note').addEventListener('click', () => { buildNoteSheet(); openSheet('note-sheet'); });
   $('note-send').addEventListener('click', sendTypedNote);
   $('open-shore').addEventListener('click', () => { refreshShore(); openSheet('shore-sheet'); });
-  $('open-bench').addEventListener('click', () => {
-    const bench = $('bench');
-    bench.dataset.open = 'true'; bench.inert = false;
-  });
+  $('open-bench').addEventListener('click', () => openBench());
+  // The phrase under the greeting stays unexplained where it sits; tapping
+  // it opens the field note that explains all three.
+  $('mantra').addEventListener('click', () => openBench('note-three-phrases'));
   for (const b of document.querySelectorAll('[data-close]')) {
     b.addEventListener('click', () => {
       const id = b.dataset.close;
@@ -1077,6 +1142,7 @@ function wire() {
       e.target.closest('button, a, .sheet, .bench, .guide');
     if (session && session.tech.kind === 'paddle' && !onControl) paddleTap(x, y);
     else if (y > HORIZON) scene.ripple(x, y, 1);
+    if (session && !onControl) maybeHintPaddle(session.tech);
     if (session) wakeQuietTimer();
     sound.resumeFromGesture();
   });
@@ -1095,8 +1161,10 @@ function wire() {
       sound.resumeFromGesture();
       refreshHome();
       // a tab that sat on a home screen all night comes back to stale
-      // weather; half an hour is old enough to be worth a quiet fetch
-      if (town.ageMs() > 30 * 60000) town.refresh().then(townChanged);
+      // weather; half an hour is old enough to be worth a quiet fetch.
+      // force, because the module's own TTL is an hour and would otherwise
+      // turn this catch-up into a no-op until sixty minutes had passed.
+      if (town.ageMs() > 30 * 60000) town.refresh(true).then(townChanged);
     }
   });
   window.addEventListener('pagehide', () => { if (session) finishSession(false); else net.leave(); });

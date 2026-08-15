@@ -37,6 +37,7 @@
       <label class="sr-only" for="secret">Moderator secret</label>
       <input type="password" id="secret" autocomplete="current-password" placeholder="moderator secret">
       <button type="submit">Open the queue</button>
+      <button type="button" id="forget">Forget the secret</button>
     </form>
     <div id="list"></div>
     <p class="status" id="status"></p>
@@ -46,6 +47,8 @@
     import { fetchPending, moderate } from './js/net.js';
 
     const $ = (id) => document.getElementById(id);
+    // sessionStorage, not localStorage: the working secret survives a
+    // reload of this tab and nothing else. Close the tab and it's gone.
     const KEY = 'lakebreath-mod';
     const say = (m) => { $('status').textContent = m; };
     const secret = () => $('secret').value.trim();
@@ -61,7 +64,7 @@
     async function load() {
       const s = secret();
       if (!s) { say('Enter the secret from the SQL file.'); return; }
-      try { localStorage.setItem(KEY, s); } catch { /* fine */ }
+      try { sessionStorage.setItem(KEY, s); } catch { /* fine */ }
       say('Looking…');
       const rows = await fetchPending(s);
       const list = $('list');
@@ -98,8 +101,14 @@
     }
 
     $('gate').addEventListener('submit', (e) => { e.preventDefault(); load(); });
+    $('forget').addEventListener('click', () => {
+      try { sessionStorage.removeItem(KEY); } catch { /* fine */ }
+      $('secret').value = '';
+      $('list').textContent = '';
+      say('Forgotten. Nothing about the secret is kept on this device.');
+    });
     try {
-      const saved = localStorage.getItem(KEY);
+      const saved = sessionStorage.getItem(KEY);
       if (saved) { $('secret').value = saved; load(); }
     } catch { /* fine */ }
   </script>

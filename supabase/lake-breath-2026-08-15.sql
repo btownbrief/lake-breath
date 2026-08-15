@@ -14,14 +14,15 @@
 --      lb_send_text takes 3..280 characters, strips control characters,
 --      rate-limits one per neighbor per 2 hours, and stores the note
 --      UNAPPROVED. Nothing reaches the wall until a human approves it in
---      mod.html (lb_pending / lb_moderate, gated by lb_mod_secret).
+--      mod.html (lb_pending / lb_moderate, gated by a bcrypt hash in
+--      lb_mod_hash).
 --      lb_send_note, the old preset path, still works for the transition;
 --      the client no longer calls it.
 --
---      >>> BEFORE YOU RUN THIS: edit lb_mod_secret() below and replace
---      >>> the placeholder with your own long random string. That string
---      >>> is the ONLY thing standing between the internet and the
---      >>> moderation queue.
+--      >>> BEFORE YOU RUN THIS: put a bcrypt HASH of your moderator
+--      >>> secret into lb_mod_hash() below. Instructions are on the
+--      >>> function. Until you do, the queue stays shut: the gate fails
+--      >>> closed on the placeholder, so nobody gets in, including you.
 --   3. lb_town_seconds — Burlington's quiet minutes this month, summed
 --      from the existing lake-breath leaderboard rows (each player's
 --      score is their cumulative completed seconds this NY month).
@@ -37,6 +38,13 @@
 -- rate limits, and preset validation stop casual mischief; they do not
 -- stop Sybils. That's an accepted tradeoff for a friendly-town product —
 -- never present these numbers as integrity-protected.
+
+-- ------------------------------------------------------------ extensions
+
+-- pgcrypto (crypt / gen_salt) gates the moderation queue. Supabase ships it
+-- in the extensions schema; this is a no-op on a project that already has
+-- it, which is every project in the fleet.
+create extension if not exists pgcrypto with schema extensions;
 
 -- ---------------------------------------------------------------- tables
 
@@ -63,11 +71,20 @@ create table if not exists public.lb_notes (
   preset int,                      -- curated line id (see js/content.js)
   body text check (char_length(body) <= 280),
   approved boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- when a human said yes. The wall's 48 hours run from HERE, so a note
+  -- that waited a day in the queue still gets its full time on the wall,
+  -- while created_at keeps meaning "when it was sent" for the rate limit.
+  approved_at timestamptz
 );
+
+-- re-runnable on a table created before approved_at existed
+alter table public.lb_notes add column if not exists approved_at timestamptz;
 
 create index if not exists lb_notes_wall
   on public.lb_notes (app, approved, created_at desc);
+create index if not exists lb_notes_wall_approved
+  on public.lb_notes (app, approved, approved_at desc);
 -- the per-neighbor rate check and the age sweep each want their own path
 create index if not exists lb_notes_rate
   on public.lb_notes (app, pid, created_at desc);
@@ -125,11 +142,13 @@ $$;
 create or replace function public.lb_wall(p_app text)
 returns table (preset int, body text, at timestamptz)
 language sql security definer set search_path = public as $$
-  select n.preset, n.body, n.created_at
+  select n.preset, n.body, coalesce(n.approved_at, n.created_at)
   from lb_notes n
   where n.app = p_app and n.approved
-    and n.created_at > now() - interval '48 hours'
-  order by n.created_at desc
+    -- age from approval, falling back to created_at for the preset-era
+    -- rows that went live without ever passing through the queue
+    and coalesce(n.approved_at, n.created_at) > now() - interval '48 hours'
+  order by coalesce(n.approved_at, n.created_at) desc
   limit 40;
 $$;
 
@@ -152,8 +171,8 @@ begin
   end if;
   -- keep the table tiny: the wall only ever reads 48h back
   delete from lb_notes where created_at < now() - interval '7 days';
-  insert into lb_notes (app, pid, preset, approved)
-  values (p_app, p_pid, p_preset, true);
+  insert into lb_notes (app, pid, preset, approved, approved_at)
+  values (p_app, p_pid, p_preset, true, now());
 end $$;
 
 -- Send a note somebody wrote. Trimmed, length-checked, control characters
@@ -184,24 +203,46 @@ end $$;
 
 -- ---------------------------------------------------------- moderation
 
--- EDIT THIS BEFORE RUNNING. Replace the placeholder with a long random
--- string (a password manager's "generate" is perfect). It is the whole
--- gate on the moderation queue: anyone holding it can approve or delete
--- notes. Paste the same string into mod.html when it asks. To rotate it,
--- edit and re-run this one function.
-create or replace function public.lb_mod_secret() returns text
-language sql immutable as $$ select 'CHANGE-ME-BEFORE-RUNNING-a-long-random-string'::text; $$;
+-- EDIT THIS BEFORE RUNNING. The queue is gated by a moderator secret, and
+-- what lives here is a bcrypt HASH of that secret, never the secret. The
+-- plaintext exists only in your password manager and in the browser tab
+-- you moderate from.
+--
+-- 1. Pick a long random string (a password manager's "generate" is perfect).
+-- 2. Run this in the SQL editor, with your string in place of the example:
+--
+--      select extensions.crypt('your-secret', extensions.gen_salt('bf'));
+--
+-- 3. Paste the '$2a$...' result it prints between the quotes below, and
+--    run this file.
+--
+-- To rotate the secret, repeat and re-run this one function. While the
+-- placeholder is still here the gate FAILS CLOSED: no secret opens the
+-- queue at all, which is the right way for a half-installed lock to fail.
+create or replace function public.lb_mod_hash() returns text
+language sql immutable as $$ select 'CHANGE-ME-PASTE-A-BCRYPT-HASH-HERE'::text; $$;
 
--- Never grant this one to anon: the secret must not be readable, only
--- comparable inside the two functions below.
-revoke all on function public.lb_mod_secret() from public, anon, authenticated;
+-- Never grant these to anon: the hash must not be readable, only
+-- comparable inside the gate.
+revoke all on function public.lb_mod_hash() from public, anon, authenticated;
+
+-- The gate. bcrypt is deliberately slow, so guessing over the public RPC
+-- costs real time per attempt instead of being a plain string compare.
+create or replace function public.lb_mod_ok(p_secret text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select p_secret is not null
+     and lb_mod_hash() like '$2%'   -- an unedited placeholder opens nothing
+     and extensions.crypt(p_secret, lb_mod_hash()) = lb_mod_hash();
+$$;
+
+revoke all on function public.lb_mod_ok(text) from public, anon, authenticated;
 
 -- The queue: notes waiting on a human, newest first.
 create or replace function public.lb_pending(p_secret text)
 returns table (id uuid, body text, created_at timestamptz)
 language plpgsql security definer set search_path = public as $$
 begin
-  if p_secret is null or p_secret <> lb_mod_secret() then
+  if not lb_mod_ok(p_secret) then
     raise exception 'bad_secret';
   end if;
   return query
@@ -217,13 +258,14 @@ create or replace function public.lb_moderate(p_secret text, p_id uuid, p_approv
 returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if p_secret is null or p_secret <> lb_mod_secret() then
+  if not lb_mod_ok(p_secret) then
     raise exception 'bad_secret';
   end if;
   if p_approve then
-    -- created_at moves to now so an approved note gets its full 48 hours
-    -- on the wall rather than aging out while it sat in the queue
-    update lb_notes set approved = true, created_at = now() where id = p_id;
+    -- approved_at starts the note's 48 hours on the wall. created_at is
+    -- left alone: it is when the note was SENT, and moving it would hand
+    -- that neighbor a fresh two-hour rate-limit window as a side effect.
+    update lb_notes set approved = true, approved_at = now() where id = p_id;
   else
     delete from lb_notes where id = p_id;
   end if;
@@ -262,7 +304,7 @@ grant execute on function public.lb_leave(text, text) to anon;
 grant execute on function public.lb_wall(text) to anon;
 grant execute on function public.lb_send_note(text, text, int) to anon;
 grant execute on function public.lb_send_text(text, text, text) to anon;
--- the secret is the gate on these two, not the grant
+-- the hashed secret is the gate on these two, not the grant
 grant execute on function public.lb_pending(text) to anon;
 grant execute on function public.lb_moderate(text, uuid, boolean) to anon;
 grant execute on function public.lb_town_seconds(text) to anon;

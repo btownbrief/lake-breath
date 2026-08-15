@@ -23,7 +23,11 @@ to the same wall clock.
   scarcity. The maple only grows; missed days are just sky. If a mechanic
   would make a stressed person feel worse at 11pm, it doesn't ship. Field
   Notes tone is calibrated and honest — effect sizes are small and we say
-  so.
+  so. **One deliberate exception, per Stephen's call:** the doing
+  practices (Steady, Paddle) show a gentle last-session comparison and a
+  best that only ever grows. He asked for those. They stay, they stay
+  phrased as plain facts, and they are never framed as failure, a target
+  to beat, or a thing you lost.
 - **Note presets are append-only.** `NOTE_PRESETS` ids are validated
   server-side against `lb_note_preset_max()`; bump that function in a new
   SQL migration when appending. Never renumber or delete.
@@ -81,8 +85,18 @@ to the same wall clock.
 - **Notes are freeform and moderated.** The client only calls
   `lb_send_text`; every note lands `approved=false`. Approval happens in
   `mod.html` (linked nowhere, not in the service worker's SHELL) against
-  `lb_mod_secret()`, which Stephen edits in the SQL before running it.
-  Wall rendering stays `textContent`, forever.
+  `lb_mod_hash()`, a bcrypt hash Stephen pastes into the SQL before
+  running it (the plaintext secret never enters the repo, and the gate
+  fails closed while the placeholder is there). mod.html keeps the
+  working secret in sessionStorage only. Wall age runs off `approved_at`,
+  never `created_at` — moving `created_at` would reset the sender's rate
+  limit. Wall rendering stays `textContent`, forever.
+- **The doing practices account for themselves in the engine.** Steady's
+  centered time and drift episodes are `steadyStep()`; Paddle judges each
+  gap as it lands with `paddleStroke()`, against the cadence current at
+  that moment, and reports `onRhythm` out of `judgedGaps` (n taps, n-1
+  gaps). Never re-tally a finished session against its final cadence:
+  somebody who slowed down gradually was on rhythm the whole way.
 - **Just Sit is the plain timer** (`kind: 'timer'`): no phase words, no
   cues, bloom in idle presence, and the only ending in the app that uses
   `sound.gong()` instead of the bowl. Its length comes off the minute dial

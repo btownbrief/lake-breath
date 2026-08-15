@@ -53,15 +53,21 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
 
 1. **Deploy:** push to `main` — GitHub Pages serves the repo root at
    `play.btownbrief.com/lake-breath/`. No build step.
-2. **Backend (one-time):** open `supabase/lake-breath-2026-08-15.sql`,
-   **replace the placeholder in `lb_mod_secret()` with a long random
-   string**, then paste the whole file into the shared btown-games
-   Supabase project's SQL editor and run. Until then the app hides
-   presence, the wall, and town totals.
+2. **Backend (one-time):** open `supabase/lake-breath-2026-08-15.sql`.
+   Pick a long random moderator secret, run
+   `select extensions.crypt('your-secret', extensions.gen_salt('bf'));`
+   in the SQL editor, and **paste the resulting `$2a$…` hash into
+   `lb_mod_hash()`** (the plaintext secret never goes in the file). Then
+   paste the whole file into the shared btown-games Supabase project's SQL
+   editor and run. Until then the app hides presence, the wall, and town
+   totals. While the placeholder hash is still in place the moderation
+   gate fails closed and no secret opens the queue.
 3. **Moderating notes:** open `/lake-breath/mod.html` (linked from nowhere
-   in the app, not cached by the service worker), paste that same secret,
-   and approve or remove what's waiting. Approved notes appear on the town
-   wall for 48 hours; nothing reaches the wall unread.
+   in the app, not cached by the service worker), paste the plaintext
+   secret, and approve or remove what's waiting. The page keeps it in
+   sessionStorage only, and there's a "forget the secret" link; closing
+   the tab forgets it too. Approved notes appear on the town wall for 48
+   hours from approval; nothing reaches the wall unread.
 4. **Note:** the shared arcade nav.js is deliberately omitted — a
    meditation scene is a sanctuary, not a portal; a quiet link to the
    arcade lives on the Your Shore sheet instead.

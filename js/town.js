@@ -13,7 +13,7 @@
 //   calendar.json                hand-kept annual anchors (Festival of Fools)
 //   goodburlington-queue.json    good neighborhood links, often empty
 
-import { nyDateStr, dailyIndex } from './engine.js';
+import { nyDateStr, nyDayPlus, dailyIndex } from './engine.js';
 
 const BASE = 'https://guide.btownbrief.com/data/';
 const KEY = 'lakebreath-town';
@@ -59,17 +59,19 @@ function fixtureOn() {
 }
 
 const dayStr = (ms) => nyDateStr(ms);
-const plusDays = (ms, n) => ms + n * 86400000;
+// "Tomorrow" is a New York calendar day, never 86,400,000 ms later: on the
+// night the clocks move, elapsed-time arithmetic skips a date.
+const dayPlus = (ms, n) => nyDayPlus(ms, n);
 
 // The fixture's dates are built from the clock at load so it always lands
 // inside the same windows the real feeds would (tomorrow, this week).
 function fixture(variant) {
   const now = Date.now();
-  const today = dayStr(now), tom = dayStr(plusDays(now, 1));
+  const today = dayStr(now), tom = dayPlus(now, 1);
   const anchors = {
-    1: [{ id: 'fixture-fair', name: 'Champlain Valley Fair', date: dayStr(plusDays(now, 3)), note: 'Essex Jct', hidden: false }],
-    2: [{ id: 'fixture-later', name: 'South End Art Hop', date: dayStr(plusDays(now, 40)), note: 'South End', hidden: false }],
-    3: [{ id: 'fixture-fools', name: 'Festival of Fools', date: dayStr(plusDays(now, 3)), note: 'Church St', hidden: false }],
+    1: [{ id: 'fixture-fair', name: 'Champlain Valley Fair', date: dayPlus(now, 3), note: 'Essex Jct', hidden: false }],
+    2: [{ id: 'fixture-later', name: 'South End Art Hop', date: dayPlus(now, 40), note: 'South End', hidden: false }],
+    3: [{ id: 'fixture-fools', name: 'Festival of Fools', date: dayPlus(now, 3), note: 'Church St', hidden: false }],
   };
   return {
     fetchedAt: now,
@@ -115,8 +117,15 @@ export function refresh(force = false) {
   if (!force && ageMs() < TTL && store.weather) return Promise.resolve(false);
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve(false);
   const names = Object.keys(FEEDS);
+  // One hung feed must never wedge the town: a shared abort at ten seconds
+  // caps the whole round, and `finally` hands the lock back no matter what.
+  // (Without both, `refreshing` could stay occupied for the life of the tab
+  // and every later refresh would silently no-op.)
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const cutoff = setTimeout(() => { try { ctrl?.abort(); } catch { /* fine */ } }, 10000);
   refreshing = Promise.allSettled(names.map((n) =>
-    fetch(BASE + FEEDS[n]).then((r) => (r.ok ? r.json() : null)),
+    fetch(BASE + FEEDS[n], ctrl ? { signal: ctrl.signal } : undefined)
+      .then((r) => (r.ok ? r.json() : null)),
   )).then((results) => {
     let got = false, changed = false;
     results.forEach((res, i) => {
@@ -127,9 +136,11 @@ export function refresh(force = false) {
       if (next !== JSON.stringify(store[name])) { store[name] = res.value; changed = true; }
     });
     if (got) { store.fetchedAt = Date.now(); save(); }
-    refreshing = null;
     return changed;
-  }).catch(() => { refreshing = null; return false; });
+  }).catch(() => false).finally(() => {
+    clearTimeout(cutoff);
+    refreshing = null;
+  });
   return refreshing;
 }
 
@@ -157,7 +168,7 @@ const periodDay = (p) => {
 export function tomorrow(nowMs = Date.now()) {
   const periods = store.weather?.forecast?.periods;
   if (!Array.isArray(periods) || !periods.length) return null;
-  const today = dayStr(nowMs), tom = dayStr(plusDays(nowMs, 1));
+  const today = dayStr(nowMs), tom = dayPlus(nowMs, 1);
   const tomP = periods.find((p) => p.is_day && periodDay(p) === tom);
   if (!tomP) return null;
   // After sunset the only daytime period left IS tomorrow's; falling back

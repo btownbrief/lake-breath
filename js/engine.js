@@ -16,6 +16,18 @@ export const TECHNIQUES = {
     durations: [180, 300, 600],
     defaultDuration: 300,
   },
+  paddle: {
+    name: 'Paddle',
+    tag: 'a steady rhythm, like strokes on the lake',
+    // Also not a pacer: the user sets the tempo by tapping. Each tap is a
+    // stroke; the app only watches how even the strokes are, and never
+    // scolds a missed one. Second in the list on purpose: it is the
+    // easiest way in for anyone who bounces off watching the breath.
+    kind: 'paddle',
+    cadenceMs: 2000,
+    durations: [180, 300, 600],
+    defaultDuration: 300,
+  },
   timer: {
     name: 'Just Sit',
     tag: 'the lake keeps time',
@@ -59,17 +71,6 @@ export const TECHNIQUES = {
     kind: 'still',
     durations: [180, 300],
     defaultDuration: 180,
-  },
-  paddle: {
-    name: 'Paddle',
-    tag: 'a steady rhythm, like strokes on the lake',
-    // Also not a pacer: the user sets the tempo by tapping. Each tap is a
-    // stroke; the app only watches how even the strokes are, and never
-    // scolds a missed one.
-    kind: 'paddle',
-    cadenceMs: 2000,
-    durations: [180, 300, 600],
-    defaultDuration: 300,
   },
   porch: {
     name: 'Front Porch',
@@ -157,22 +158,92 @@ export function paddleCadence(cadenceMs, gap) {
   return clampCadence(cadenceMs + (gap - cadenceMs) * 0.2);
 }
 
-// gaps: ms between consecutive taps, oldest first. strokes counts the taps
-// themselves (one more than the gaps; the opening stroke sets the tempo and
-// is never judged). A drift is a gap long enough that attention clearly
-// went somewhere else.
-export function paddleTally(gaps, cadenceMs) {
-  let onRhythm = 0, longestRun = 0, run = 0, drifts = 0;
-  for (const g of gaps) {
-    if (paddleOnRhythm(g, cadenceMs)) {
-      onRhythm += 1; run += 1;
-      if (run > longestRun) longestRun = run;
-    } else {
-      run = 0;
-      if (g > cadenceMs * 1.8) drifts += 1;
+// Paddle is judged ONLINE, stroke by stroke, against the cadence that was
+// current at that moment — never re-tallied at the end against whatever
+// tempo the session drifted into. Somebody who slows down gradually is
+// paddling perfectly well the whole way down, and a final-cadence rewrite
+// would go back and call those early strokes wrong.
+//
+// n taps produce n-1 judged gaps. The first gap is what SETS the tempo, so
+// it is on rhythm by definition: you cannot miss a beat you just invented.
+export function freshPaddle() {
+  return {
+    strokes: 0,      // taps
+    judgedGaps: 0,   // gaps judged (strokes - 1, once there are any)
+    onRhythm: 0,
+    run: 0, longestRun: 0,
+    drifts: 0,
+    cadence: null,   // their own tempo, learned and slowly drifting
+  };
+}
+
+// One tap. gapMs is the ms since the previous tap, or null for the first
+// tap of the session. Pure: returns a new state.
+export function paddleStroke(state, gapMs) {
+  const s = { ...state };
+  s.strokes += 1;
+  if (gapMs == null) return s;
+  const cadence = s.cadence;
+  s.judgedGaps += 1;
+  const on = cadence == null ? true : paddleOnRhythm(gapMs, cadence);
+  if (on) {
+    s.onRhythm += 1;
+    s.run += 1;
+    if (s.run > s.longestRun) s.longestRun = s.run;
+  } else {
+    s.run = 0;
+    // a gap long enough that attention clearly went somewhere else
+    if (gapMs > cadence * 1.8) s.drifts += 1;
+  }
+  s.cadence = paddleCadence(cadence, gapMs);
+  return s;
+}
+
+// ---------------------------------------------------------------- steady
+
+// Steady's accounting, as a pure state machine so it can be tested without
+// a phone. Per tick it takes what the sensor says right now:
+//   inRing — is the bubble inside the ring
+//   flat   — 0..1, how flat the phone is being held
+//   churn  — 0..1 smoothed motion
+//   dt     — seconds since the last tick
+//
+// Centered ("home") time needs all three: bubble home, phone actually flat,
+// and the lake calm. An upright phone reads as tilt-zero (the bubble fades
+// to the middle as flatness goes), so without the flatness gate a phone
+// standing on a table would earn a perfect session.
+//
+// Drifts are episodes, not samples: one departure or one pickup is one
+// drift however long it lasts, it only counts once it has lasted a second,
+// and the count can't advance again until the phone comes properly home.
+export const STEADY_FLAT_MIN = 0.5;    // below this the bubble means nothing
+export const STEADY_CALM_MAX = 0.35;   // churn above this is not "settled"
+export const STEADY_PICKUP = 0.5;      // churn above this is a pickup
+export const STEADY_AWAY_SEC = 1;      // an away has to last a second
+
+export function freshSteady() {
+  return { centeredSec: 0, drifts: 0, awaySec: 0, awayCounted: false };
+}
+
+export function steadyStep(state, { inRing, flat, churn, dt }) {
+  const s = { ...state };
+  const step = Math.max(0, Math.min(0.25, dt || 0));
+  const home = inRing && flat > STEADY_FLAT_MIN && churn < STEADY_CALM_MAX;
+  const away = !inRing || churn > STEADY_PICKUP;
+  if (home) {
+    s.centeredSec += step;
+    s.awaySec = 0;
+    s.awayCounted = false;
+  } else if (away) {
+    s.awaySec += step;
+    if (!s.awayCounted && s.awaySec > STEADY_AWAY_SEC) {
+      s.drifts += 1;
+      s.awayCounted = true;
     }
   }
-  return { strokes: gaps.length ? gaps.length + 1 : 0, onRhythm, longestRun, drifts };
+  // Neither home nor away (a phone tipped up, or settling after a pickup)
+  // earns nothing and costs nothing. Silence is a fair answer.
+  return s;
 }
 
 // Shared receipt line for the two attention practices. Counting is fine;
@@ -208,6 +279,16 @@ const pad2 = (n) => String(n).padStart(2, '0');
 export function nyDateStr(ms) {
   const p = nyParts(ms);
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+}
+
+// The NY calendar date n days from the one `ms` falls on, as 'YYYY-MM-DD'.
+// Calendar arithmetic, NOT elapsed time: adding 86,400,000 ms to 11:30 PM
+// on the night the clocks spring forward lands on the day after tomorrow.
+// Date.UTC normalizes overflow and negative day-of-month for us, and 17:00
+// UTC is the same NY calendar day at either offset.
+export function nyDayPlus(ms, n) {
+  const p = nyParts(ms);
+  return nyDateStr(Date.UTC(p.year, p.month - 1, p.day + n, 17, 0, 0));
 }
 
 // Pick one of n things for today, the same one for everybody in town all

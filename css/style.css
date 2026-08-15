@@ -142,13 +142,23 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   text-shadow: 0 1px 12px rgba(0, 0, 0, .4);
 }
 .undergreeting b { color: var(--gold); font-weight: 550; }
-/* one of three phrases, today's. Set apart, unexplained. */
+/* one of three phrases, today's. Set apart, and unexplained on the home
+   screen: tapping it opens the Field Notes entry that explains all three,
+   which is the only place the explanation belongs. Styled exactly as the
+   line was when it was a <p>; it is a button only so it can be tapped. */
 .mantra {
+  display: block; appearance: none; background: none; border: 0; padding: 0;
+  text-align: left; cursor: pointer;
   font-family: var(--serif); font-style: italic;
   font-variation-settings: 'SOFT' 100, 'WONK' 0;
   font-weight: 340; font-size: 1rem; color: var(--ink-faint);
   margin-top: -6px;
   text-shadow: 0 1px 12px rgba(0, 0, 0, .4);
+}
+.mantra:hover { color: var(--ink-soft); }
+.mantra:focus-visible {
+  outline: none; color: var(--ink-soft);
+  box-shadow: 0 1.5px 0 0 var(--gold);
 }
 
 /* the local layer: two whispers under the greeting. Small, sans, dim —

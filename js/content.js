@@ -52,7 +52,7 @@ export const MANTRAS = ['Listen.', 'Choose again.', 'Devote.'];
 export const GUIDE_STEPS = [
   'A living Lake Champlain. It follows Burlington’s real sky, season, and clock.',
   'Breathe anytime. At 8:02 each evening the whole town breathes together, and you can see how many neighbors are on the water with you.',
-  'Six practices. Breathing ones, and doing ones: hold the phone steady, or tap a paddle rhythm. Like a walk in the park: do the simple thing, and let your best thinking arrive. Keep voice memos nearby for the ideas that surface.',
+  'Six practices. Try Paddle: tap the water in your own slow rhythm, like strokes across the lake, and let your thoughts drift while your hands keep time. Or breathe, hold the phone steady, or just sit. Like a walk in the park: do the simple thing, and let your best thinking arrive. Keep voice memos nearby for the ideas that surface.',
   'Your maple grows on the shore with every day you show up. It never shrinks.',
   'After a sit, send a kind note to the town, and read what neighbors left for you.',
 ];
@@ -73,6 +73,12 @@ export const PLAQUES = [
 // Field Notes: the teaching page. Four notes, short and calibrated. The
 // long version lived here for a while and nobody read it.
 export const FIELD_NOTES = [
+  {
+    // the home screen's mantra line links straight here
+    id: 'note-three-phrases',
+    title: 'The three phrases',
+    body: 'One of these sits under the greeting each day: Listen. Choose again. Devote. They are the three things this app keeps coming back to, because they are the three things worth coming back to. Listen: before anything else, notice what is actually here. The sound behind the sound, the thought behind the thought, the person in front of you. Most of what goes wrong starts with not listening. Choose again: you already chose once; that is how you got here. The gift is that you get to choose again, every breath, without needing the last choice to have been right. Begin again, but on purpose. Devote: attention, given steadily, becomes devotion. Whatever you give your minutes to is what your life is quietly becoming. Choose what deserves you, then keep showing up for it. They work in order. Listen first. Then choose again. Then devote yourself to the choice.',
+  },
   {
     title: 'What this practice actually does',
     body: 'Slow, exhale-weighted breathing at about six breaths a minute reliably blunts the body’s acute stress response. Heart rate, self-reported anxiety, and stress-linked enzymes all stay closer to baseline while something hard is happening, and that comes from randomized trials. What it does not do is change your baseline in one sitting. The honest effect sizes are modest, and the benefits accumulate over about four weeks of short daily practice.',

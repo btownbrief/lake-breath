@@ -5,12 +5,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   TECHNIQUES, cycleMs, phaseAt, breathLevel,
-  nyParts, nyDateStr, nyMonthKey, nyWallToEpoch, dailyIndex,
+  nyParts, nyDateStr, nyMonthKey, nyWallToEpoch, nyDayPlus, dailyIndex,
   TOWN, townTimes, townState, townPhaseMs,
   seasonFor, skyPhase,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
   presenceId, presenceLine,
-  PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence, paddleTally,
+  PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence,
+  freshPaddle, paddleStroke, freshSteady, steadyStep,
   driftPhrase,
 } from '../js/engine.js';
 
@@ -77,9 +78,11 @@ test('Just Sit is a plain timer with a minute range, not a pacer', () => {
   assert.equal(t.maxMinutes, 20);
   assert.equal(t.defaultDuration, 600);
   assert.ok(t.defaultDuration / 60 >= t.minMinutes && t.defaultDuration / 60 <= t.maxMinutes);
-  // and it sits second in the picker order, right after the daily practice
+  // Picker order, everywhere it appears: the daily practice, then Paddle
+  // (the easiest way in for anyone who bounces off watching the breath),
+  // then the plain timer, then the rest.
   assert.deepEqual(Object.keys(TECHNIQUES),
-    ['lake', 'timer', 'sigh', 'box', 'still', 'paddle', 'porch']);
+    ['lake', 'paddle', 'timer', 'sigh', 'box', 'still', 'porch']);
 });
 
 test('a tap is on rhythm within 35% of the cadence, either side', () => {
@@ -99,14 +102,101 @@ test('the paddler sets their own cadence, inside human limits', () => {
   assert.equal(paddleCadence(1500, 4000), 1500);
 });
 
-test('paddleTally counts strokes, runs and drifts without judging', () => {
-  const t = paddleTally([2000, 2100, 1900, 5000, 2000, 2000], 2000);
-  assert.deepEqual(t, { strokes: 7, onRhythm: 5, longestRun: 3, drifts: 1 });
+// A whole session of taps, judged as they land. gaps[0] is the gap between
+// tap 1 and tap 2, so n gaps means n+1 taps.
+function paddleSession(gaps) {
+  let s = paddleStroke(freshPaddle(), null);
+  for (const g of gaps) s = paddleStroke(s, g);
+  return s;
+}
+
+test('paddle counts strokes, runs and drifts as they land', () => {
+  const t = paddleSession([2000, 2100, 1900, 5000, 2000, 2000]);
+  assert.equal(t.strokes, 7);
+  assert.equal(t.judgedGaps, 6);
+  assert.equal(t.onRhythm, 5);   // the 5000ms wander is the only miss
+  assert.equal(t.longestRun, 3);
+  assert.equal(t.drifts, 1);
   // a gap that misses the window but isn't a wander is not a drift
-  assert.equal(paddleTally([2900], 2000).drifts, 0);
-  assert.equal(paddleTally([3700], 2000).drifts, 1);
-  // no taps at all is zero strokes, not one
-  assert.deepEqual(paddleTally([], 2000), { strokes: 0, onRhythm: 0, longestRun: 0, drifts: 0 });
+  assert.equal(paddleSession([2000, 2900]).drifts, 0);
+  assert.equal(paddleSession([2000, 3700]).drifts, 1);
+  // no taps at all is nothing at all
+  assert.deepEqual(freshPaddle(),
+    { strokes: 0, judgedGaps: 0, onRhythm: 0, run: 0, longestRun: 0, drifts: 0, cadence: null });
+});
+
+test('four perfect taps read as fully on rhythm, not as a miss', () => {
+  // Three gaps, not four: the denominator is judged GAPS. Reporting
+  // "3 of 4 strokes" would invent a miss that never happened.
+  const t = paddleSession([2000, 2000, 2000]);
+  assert.equal(t.strokes, 4);
+  assert.equal(t.judgedGaps, 3);
+  assert.equal(t.onRhythm, 3);
+  assert.equal(t.longestRun, 3);
+  assert.equal(t.drifts, 0);
+  // the opening gap is what SETS the tempo, so it cannot be off it
+  const one = paddleSession([3200]);
+  assert.equal(one.judgedGaps, 1);
+  assert.equal(one.onRhythm, 1);
+});
+
+test('a gradual tempo change stays on rhythm the whole way down', () => {
+  // Somebody slowing from 1.6s to about 2.6s a stroke, a few percent at a
+  // time. Every gap is on rhythm against the cadence current at that
+  // moment; re-tallying at the end against the final cadence would go back
+  // and call the opening strokes wrong.
+  const gaps = [];
+  let gap = 1600;
+  for (let i = 0; i < 20; i++) { gaps.push(Math.round(gap)); gap *= 1.026; }
+  const t = paddleSession(gaps);
+  assert.equal(t.judgedGaps, gaps.length);
+  assert.equal(t.onRhythm, gaps.length, 'a slow drift is still their rhythm');
+  assert.equal(t.drifts, 0);
+  assert.ok(t.cadence > 1600 && t.cadence < 2700, 'the cadence followed them');
+});
+
+// Steady, driven a tick at a time the way the frame loop drives it.
+function steadyRun(state, seconds, tick) {
+  let s = state;
+  const dt = 0.05;
+  for (let t = 0; t < seconds; t += dt) s = steadyStep(s, { ...tick, dt });
+  return s;
+}
+
+test('an upright phone earns no centered time and no drifts', () => {
+  // Standing on a table the tilt fades to zero, so the bubble reads dead
+  // centre. Without the flatness gate that is a perfect session.
+  const s = steadyRun(freshSteady(), 60, { inRing: true, flat: 0.05, churn: 0.02 });
+  assert.equal(s.centeredSec, 0, 'flat-enough is part of being home');
+  assert.equal(s.drifts, 0, 'and a tipped-up phone is not scolded either');
+  // held properly flat and calm, the same minute counts
+  const home = steadyRun(freshSteady(), 60, { inRing: true, flat: 0.9, churn: 0.02 });
+  assert.ok(home.centeredSec >= 59.9 && home.centeredSec <= 60.1);
+});
+
+test('churn stops centered time even with the bubble in the ring', () => {
+  const s = steadyRun(freshSteady(), 10, { inRing: true, flat: 0.9, churn: 0.4 });
+  assert.equal(s.centeredSec, 0, 'shaking is not settled');
+});
+
+test('one sustained pickup is one drift, not several', () => {
+  let s = steadyRun(freshSteady(), 3, { inRing: true, flat: 0.9, churn: 0.02 });
+  s = steadyRun(s, 12, { inRing: false, flat: 0.2, churn: 0.8 }); // picked up
+  assert.equal(s.drifts, 1, 'twelve seconds in the hand is one departure');
+  // put it back down and leave again: that one is a second drift
+  s = steadyRun(s, 5, { inRing: true, flat: 0.9, churn: 0.02 });
+  s = steadyRun(s, 4, { inRing: false, flat: 0.9, churn: 0.1 });
+  assert.equal(s.drifts, 2);
+});
+
+test('a brief wobble out of the ring counts nothing', () => {
+  let s = steadyRun(freshSteady(), 5, { inRing: true, flat: 0.9, churn: 0.02 });
+  for (let i = 0; i < 6; i++) {
+    s = steadyRun(s, 0.8, { inRing: false, flat: 0.9, churn: 0.1 }); // under a second
+    s = steadyRun(s, 2, { inRing: true, flat: 0.9, churn: 0.02 });
+  }
+  assert.equal(s.drifts, 0, 'hovering on the line is not a score');
+  assert.ok(s.centeredSec > 16, 'and the time at home still counts');
 });
 
 test('drift copy counts plainly and never scolds', () => {
@@ -142,6 +232,24 @@ test('nyWallToEpoch round-trips in both EST and EDT', () => {
   assert.equal(nyParts(july).minute, 2);
   assert.equal(nyParts(jan).hour, 18);
   assert.equal(jan - Date.UTC(2026, 0, 4, 23, 2), 0); // EST = UTC-5
+});
+
+test('tomorrow is a NY calendar day, not 86,400,000 milliseconds', () => {
+  // 11:30 PM on 2026-03-07 EST, the night before the clocks spring
+  // forward. Adding 24 hours of elapsed time lands at 12:30 AM on the 9th
+  // in NY and skips the 8th entirely.
+  const springEve = Date.UTC(2026, 2, 8, 4, 30); // 2026-03-07 23:30 EST
+  assert.equal(nyDateStr(springEve), '2026-03-07');
+  assert.equal(nyDayPlus(springEve, 1), '2026-03-08');
+  assert.equal(nyDateStr(springEve + 86400000), '2026-03-09', 'the bug, for the record');
+  // and back the other way, over the same seam
+  assert.equal(nyDayPlus(Date.UTC(2026, 2, 8, 16, 0), -1), '2026-03-07');
+  // month end, year end, leap day
+  assert.equal(nyDayPlus(Date.UTC(2026, 7, 31, 16, 0), 1), '2026-09-01');
+  assert.equal(nyDayPlus(Date.UTC(2026, 11, 31, 20, 0), 1), '2027-01-01');
+  assert.equal(nyDayPlus(Date.UTC(2028, 1, 28, 16, 0), 1), '2028-02-29');
+  // a week out from a fall-back seam, too (2026-11-01 gains an hour)
+  assert.equal(nyDayPlus(Date.UTC(2026, 9, 31, 16, 0), 3), '2026-11-03');
 });
 
 test('the daily pick is stable all day and rotates with the NY date', () => {
