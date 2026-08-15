@@ -105,7 +105,9 @@ void main(){
       if (rp.w > 0.) {
         float age = u_time - rp.z;
         float rd = distance(vec2(uv.x, y), rp.xy);
-        w += sin(rd * 90. - age * 7.) * exp(-rd * 9. - age * 1.1) * rp.w * 2.2;
+        // amplitude sits well above the base swell so a touch reads as an
+        // event, and dies inside a few seconds so a rhythm never stacks up
+        w += sin(rd * 90. - age * 7.) * exp(-rd * 9. - age * 1.3) * rp.w * 9.;
       }
     }
     // base gradient + wave shading (irregular, so it never bands)
@@ -201,8 +203,12 @@ export class LakeScene {
     }
   }
 
+  // Ripples are stamped with the SHADER's clock (this._t), never
+  // performance.now(): the shader computes age as u_time - birth, so a
+  // birth from a different clock reads as a huge negative age, and
+  // exp(-age) then explodes the ripple into hard bands that never expire.
   ripple(xUv, yUv, strength = 1) {
-    this.ripples.push({ x: xUv, y: yUv, t: performance.now() / 1000, s: strength });
+    this.ripples.push({ x: xUv, y: yUv, t: this._t, s: strength });
     if (this.ripples.length > 5) this.ripples.shift();
   }
 

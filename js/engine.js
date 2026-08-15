@@ -38,14 +38,26 @@ export const TECHNIQUES = {
     defaultDuration: 300,
   },
   still: {
-    name: 'Still Water',
-    tag: 'hold the lake steady',
-    // Not a pacer: the phone's accelerometer drives the scene — motion
-    // churns the water, stillness lets it settle to glass. The practice
-    // is simply to be still. Needs DeviceMotion; hidden where unsupported.
+    name: 'Steady',
+    tag: 'phone flat, bubble home',
+    // Not a pacer: a spirit level. Hold the phone flat like a full bowl
+    // and a luminous bubble drifts with every tilt; the practice is
+    // keeping it inside the ring while your thoughts go wherever they
+    // want. Needs DeviceMotion; hidden where unsupported.
     kind: 'still',
     durations: [180, 300],
     defaultDuration: 180,
+  },
+  paddle: {
+    name: 'Paddle',
+    tag: 'a steady rhythm, like strokes on the lake',
+    // Also not a pacer: the user sets the tempo by tapping. Each tap is a
+    // stroke; the app only watches how even the strokes are, and never
+    // scolds a missed one.
+    kind: 'paddle',
+    cadenceMs: 2000,
+    durations: [180, 300, 600],
+    defaultDuration: 300,
   },
   porch: {
     name: 'Front Porch',
@@ -56,7 +68,7 @@ export const TECHNIQUES = {
       'Now the nearest one.',
       'Feel where your body touches the chair, the step, the ground.',
       'Find the farthest thing you can see.',
-      'Watch one thing that’s moving — leaves, water, clouds.',
+      'Watch one thing that’s moving: leaves, water, clouds.',
       'Let your breath do whatever it wants.',
     ],
     stepSeconds: 40,
@@ -108,6 +120,58 @@ export function breathLevel(tech, tMs) {
   return 0; // rest
 }
 
+// ------------------------------------------------------------- paddling
+
+// Paddle watches the gaps between taps, never the taps themselves. A
+// human paddling on the lake lands somewhere between a stroke a second
+// and a stroke every few seconds, so that's the range we'll accept as
+// somebody's own tempo.
+export const PADDLE_MIN_MS = 800;
+export const PADDLE_MAX_MS = 3500;
+
+const clampCadence = (ms) => Math.min(PADDLE_MAX_MS, Math.max(PADDLE_MIN_MS, ms));
+
+// On rhythm = within 35% of the cadence either side. Generous on purpose:
+// this is a meditation, not a metronome test.
+export function paddleOnRhythm(gap, cadenceMs) {
+  return gap >= cadenceMs * 0.65 && gap <= cadenceMs * 1.35;
+}
+
+// The user's own tempo, learned from their first strokes and then drifting
+// slowly toward whatever they settle into. cadenceMs null = not set yet.
+export function paddleCadence(cadenceMs, gap) {
+  if (cadenceMs == null) return clampCadence(gap);
+  if (!paddleOnRhythm(gap, cadenceMs)) return cadenceMs;
+  return clampCadence(cadenceMs + (gap - cadenceMs) * 0.2);
+}
+
+// gaps: ms between consecutive taps, oldest first. strokes counts the taps
+// themselves (one more than the gaps; the opening stroke sets the tempo and
+// is never judged). A drift is a gap long enough that attention clearly
+// went somewhere else.
+export function paddleTally(gaps, cadenceMs) {
+  let onRhythm = 0, longestRun = 0, run = 0, drifts = 0;
+  for (const g of gaps) {
+    if (paddleOnRhythm(g, cadenceMs)) {
+      onRhythm += 1; run += 1;
+      if (run > longestRun) longestRun = run;
+    } else {
+      run = 0;
+      if (g > cadenceMs * 1.8) drifts += 1;
+    }
+  }
+  return { strokes: gaps.length ? gaps.length + 1 : 0, onRhythm, longestRun, drifts };
+}
+
+// Shared receipt line for the two attention practices. Counting is fine;
+// scolding is not, so zero reads as a plain fact, never as praise withheld.
+export function driftPhrase(n) {
+  if (!n) return 'It never drifted.';
+  if (n === 1) return 'It drifted once.';
+  if (n === 2) return 'It drifted twice.';
+  return `It drifted ${n} times.`;
+}
+
 // ------------------------------------------------------- Burlington time
 
 const NY = 'America/New_York';
@@ -132,6 +196,16 @@ const pad2 = (n) => String(n).padStart(2, '0');
 export function nyDateStr(ms) {
   const p = nyParts(ms);
   return `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+}
+
+// Pick one of n things for today, the same one for everybody in town all
+// day. (djb2 over the NY date; deterministic, no storage, no shuffle.)
+export function dailyIndex(ms, n) {
+  if (n <= 0) return 0;
+  const str = nyDateStr(ms);
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
+  return h % n;
 }
 
 // 'YYYY-MM' — must match the leaderboard SQL, which buckets by NY month.
@@ -176,7 +250,7 @@ export function townTimes(ms) {
 
 // state: 'idle' (most of the day) | 'lobby' | 'live' | 'done' (just ended,
 // linger 10 min so late arrivals see what happened). After the done window
-// the idle state points at TOMORROW's 6:02, never into the past.
+// the idle state points at TOMORROW's 8:02, never into the past.
 export function townState(ms) {
   const t = townTimes(ms);
   if (ms >= t.lobby && ms < t.start) return { state: 'lobby', ...t, msToStart: t.start - ms };

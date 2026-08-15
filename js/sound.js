@@ -252,6 +252,42 @@ export function cue(kind, durS = 4) {
   osc.start(t); osc.stop(t + durS + 0.2);
 }
 
+// A paddle stroke: the soft dip of a blade entering water. A short
+// bandpassed noise burst for the catch plus a low sine thump for the pull,
+// both through the reverb so they sit out on the lake. Quiet on purpose:
+// this fires once every second or two for whole minutes.
+export function stroke() {
+  if (!ctx || !enabled || ctx.state !== 'running') return;
+  const t = ctx.currentTime + 0.01;
+  // the catch: filtered noise, in and gone
+  const src = ctx.createBufferSource();
+  src.buffer = makeNoise('white', 0.4);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.frequency.value = 620; bp.Q.value = 1.1;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t);
+  ng.gain.exponentialRampToValueAtTime(0.035, t + 0.02);
+  ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+  src.connect(bp).connect(ng);
+  ng.connect(verb);
+  const dry = ctx.createGain(); dry.gain.value = 0.5;
+  ng.connect(dry).connect(master);
+  src.start(t); src.stop(t + 0.45);
+  // the pull: a low sine that falls away
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(148, t);
+  osc.frequency.exponentialRampToValueAtTime(96, t + 0.3);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.055, t + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+  osc.connect(g).connect(verb);
+  const dry2 = ctx.createGain(); dry2.gain.value = 0.45;
+  g.connect(dry2).connect(master);
+  osc.start(t); osc.stop(t + 0.55);
+}
+
 // The bowl: inharmonic partials with long decays — the session's receipt.
 export function bowl() {
   if (!ctx || !enabled || ctx.state !== 'running') return;

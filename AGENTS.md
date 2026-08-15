@@ -1,7 +1,7 @@
 # Lake Breath — agent notes
 
 A breathing practice on a Lake Champlain horizon. Water rises on the
-inhale, settles on the exhale. Every evening at 6:02 PM Burlington time,
+inhale, settles on the exhale. Every evening at 8:02 PM Burlington time,
 "The 8:02" — six minutes, six breaths a minute, the whole town phase-locked
 to the same wall clock.
 

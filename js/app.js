@@ -5,11 +5,14 @@
 import {
   TECHNIQUES, phaseAt, breathLevel,
   townState, TOWN,
-  seasonFor, skyPhase, nyParts, nyDateStr, nyMonthKey,
+  seasonFor, skyPhase, nyParts, nyDateStr, nyMonthKey, dailyIndex,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
-  presenceLine,
+  presenceLine, paddleCadence, paddleTally, driftPhrase,
 } from './engine.js';
-import { NOTE_PRESETS, presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE } from './content.js';
+import {
+  NOTE_PRESETS, presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
+  MANTRAS, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
+} from './content.js';
 import * as sound from './sound.js';
 import * as haptics from './haptics.js';
 import * as net from './net.js';
@@ -19,7 +22,16 @@ import { Bloom } from './bloom.js';
 
 const $ = (id) => document.getElementById(id);
 const STATS_KEY = 'lakebreath-stats';
+const GUIDE_KEY = 'lakebreath-guided';
 const STILL_GLASS = 0.12; // churn below this = the water reads as glass
+
+// Steady's geometry, in units of min(canvasW, canvasH) so it means the
+// same thing on every screen. Ring radius 0.11 = a target 22% of the short
+// edge across; the gain is set so a tilt of about four degrees walks the
+// bubble to the ring's edge.
+const STEADY_RING = 0.11;
+const STEADY_GAIN = 1.5;
+let bubble = null; // {x, y, r, inRing} while Steady is running, else null
 
 // ------------------------------------------------------------- state
 
@@ -82,6 +94,8 @@ function closeAllSheets() {
 
 const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec) % 60).padStart(2, '0')}`;
 const durLabel = (secs) => secs < 180 ? `${secs} sec` : `${Math.round(secs / 60)} min`;
+// The lake's own breath: what the water does when nothing is pacing it.
+const idleBreath = () => breathLevel(TECHNIQUES.lake, Date.now() % 10000) * 0.35;
 
 // --------------------------------------------------------------- home
 
@@ -97,6 +111,8 @@ function greetingFor(nowMs) {
 async function refreshHome() {
   const now = Date.now();
   $('greeting').textContent = greetingFor(now);
+  // one of three phrases, the same one all day for everyone in town
+  $('mantra').textContent = MANTRAS[dailyIndex(now, MANTRAS.length)];
   const ts = townState(now);
   const ug = $('undergreeting');
   if (ts.state === 'lobby') {
@@ -123,9 +139,32 @@ async function refreshHome() {
   }
 }
 
-function refreshPracticeLine() {
-  $('practice-name').textContent = TECHNIQUES[techKey].name;
-  $('practice-mins').textContent = durLabel(durationSec);
+// Every practice is on the home screen as a plain word. A menu behind a
+// tap is a menu nobody opens; the sheet still exists, one tap deeper, for
+// durations and descriptions.
+function buildPracticePicks() {
+  const wrap = $('practice-picks');
+  wrap.innerHTML = '';
+  for (const [key, tech] of Object.entries(TECHNIQUES)) {
+    if (key === 'still' && !still.supported()) continue;
+    const b = document.createElement('button');
+    b.className = 'practice-pick';
+    b.setAttribute('aria-pressed', String(key === techKey));
+    b.textContent = tech.name;
+    if (key === techKey) {
+      const d = document.createElement('span');
+      d.className = 'pick-dur';
+      d.textContent = `· ${durLabel(durationSec)}`;
+      b.append(d);
+    }
+    b.addEventListener('click', () => {
+      if (key === techKey) { buildPracticeSheet(); openSheet('practice-sheet'); return; }
+      techKey = key;
+      if (!tech.durations.includes(durationSec)) durationSec = tech.defaultDuration;
+      buildPracticePicks();
+    });
+    wrap.append(b);
+  }
 }
 
 // ------------------------------------------------------ practice sheet
@@ -146,14 +185,15 @@ function buildPracticeSheet() {
       lake: 'The daily practice. In four, out six; the water breathes with you.',
       sigh: 'Two sips in, one long sigh out. Ninety seconds to reset.',
       box: 'Four even sides. For people who already love it.',
-      still: 'Hold the phone flat and steady. Motion churns the lake; stillness turns it to glass.',
+      still: 'Phone flat like a full bowl. Keep the bubble inside the ring and let your thoughts wander.',
+      paddle: 'Tap your own steady rhythm, like strokes on the water. Every tap ripples the lake.',
       porch: 'Eyes open, no counting. For when watching the breath isn’t it.',
     }[key];
     row.append(name, tag);
     row.addEventListener('click', () => {
       techKey = key;
       if (!tech.durations.includes(durationSec)) durationSec = tech.defaultDuration;
-      refreshPracticeLine(); buildPracticeSheet();
+      buildPracticePicks(); buildPracticeSheet();
       closeSheet('practice-sheet');
     });
     wrap.append(row);
@@ -169,7 +209,7 @@ function buildPracticeSheet() {
         b.setAttribute('aria-pressed', String(secs === durationSec));
         b.addEventListener('click', () => {
           durationSec = secs;
-          refreshPracticeLine(); buildPracticeSheet();
+          buildPracticePicks(); buildPracticeSheet();
         });
         durs.append(b);
       }
@@ -209,10 +249,10 @@ async function startSessionInner({ town = false } = {}) {
   }
   if (tech.kind === 'still') {
     const ok = await still.start();
-    if (!ok) { toast('Still Water needs motion access, and your phone said no. Try another practice.'); return; }
+    if (!ok) { toast('Steady needs the motion sensor, and this device didn’t offer one. Try another practice.'); return; }
   }
   sound.unlock();
-  const isBreathing = !tech.steps && tech.kind !== 'still';
+  const isBreathing = !tech.steps && !tech.kind;
   if (isBreathing) {
     sound.voiceStart();
     bloom.guide = true;
@@ -222,7 +262,10 @@ async function startSessionInner({ town = false } = {}) {
   session = {
     key, tech, t0, seconds, town,
     startedAt: now, lastSegI: -1, porchStep: -1,
-    stillSec: 0, lastT: performance.now(),
+    stillSec: 0, drifts: 0, lastT: performance.now(),
+    // Paddle: taps come in from the window listener, gaps get judged at
+    // the end by the pure tally. cadence null = they haven't set one yet.
+    strokes: 0, gaps: [], cadence: null, lastTap: 0,
     presenceTimer: setInterval(async () => {
       const n = await net.beat();
       if (session) $('presence-live').textContent = presenceLine(n ?? 0) || '';
@@ -230,15 +273,23 @@ async function startSessionInner({ town = false } = {}) {
   };
   net.beat().then((n) => { if (session) $('presence-live').textContent = presenceLine(n ?? 0) || ''; });
 
-  bloom.show(tech.kind === 'still' || tech.steps ? false : true);
+  // Steady's bubble and Paddle's ripples are the focus object; the bloom
+  // steps aside for both.
+  bloom.show(!(tech.kind || tech.steps));
+  bubble = null;
   $('phase-word').textContent = '';
   $('phase-sub').textContent =
     town ? 'The 8:02. The whole town, one clock'
       : tech.steps ? PORCH_INTRO
-      : tech.kind === 'still' ? 'Set the water down gently. Let it settle.'
+      : tech.kind === 'still' ? 'Phone flat like a full bowl. Keep the bubble home. Let your thoughts wander where they want.'
+      : tech.kind === 'paddle' ? 'Tap the water at your own steady pace. Like paddle strokes. Keep the rhythm; let your mind go where it wants.'
       : '';
   $('still-meter').textContent = '';
+  $('drift-line').textContent = '';
   $('remaining').textContent = '';
+  // Steady's bubble owns the middle of the screen; the CSS moves the two
+  // meter lines below the ring so nothing sits inside the target.
+  document.body.dataset.practice = key;
   document.body.dataset.view = 'session';
   wakeQuietTimer();
 }
@@ -269,21 +320,49 @@ function sessionFrame(nowP) {
   }
 
   if (s.tech.kind === 'still') {
+    // Steady: the spirit level. The bubble follows the low side of the
+    // phone, like a ball on a plate; keeping it home is the whole practice.
     const churn = still.getChurn();
-    const glassy = churn < STILL_GLASS;
-    if (glassy) s.stillSec += dt;
-    // a "stir": the glass broke — count it once, kindly, with a debounce
-    if (!glassy && s.wasGlassy && nowP - (s.lastStir || 0) > 2500) {
-      s.stirs = (s.stirs || 0) + 1;
-      s.lastStir = nowP;
+    const tilt = still.getTilt();
+    const W = bloom.canvas.width, H = bloom.canvas.height;
+    const u = Math.min(W, H) || 1;
+    const limX = (W / u) * 0.5 - 0.06, limY = (H / u) * 0.5 - 0.06;
+    const bx = Math.max(-limX, Math.min(limX, tilt.x * STEADY_GAIN));
+    const by = Math.max(-limY, Math.min(limY, -tilt.y * STEADY_GAIN));
+    const inRing = Math.hypot(bx, by) <= STEADY_RING;
+    bubble = { x: bx, y: by, r: STEADY_RING, inRing };
+
+    if (inRing) {
+      s.stillSec += dt;
+      s.outSince = 0; s.driftCounted = false;
+    } else {
+      if (!s.outSince) s.outSince = nowP;
+      // one drift per departure, and only once it's a real one (>1s out),
+      // with a debounce so hovering on the line can't rack up a score
+      if (!s.driftCounted && nowP - s.outSince > 1000 && nowP - (s.lastDrift || -9999) > 2500) {
+        s.drifts += 1; s.lastDrift = nowP; s.driftCounted = true;
+      }
     }
-    s.wasGlassy = glassy;
-    $('still-meter').textContent = glassy
-      ? `glass ${fmt(s.stillSec)}`
-      : 'the water is settling…';
+    // picking the phone up is a drift too, whatever the bubble says
+    if (churn > 0.5 && nowP - (s.lastDrift || -9999) > 2500) {
+      s.drifts += 1; s.lastDrift = nowP; s.driftCounted = true;
+    }
+
+    $('still-meter').textContent = `home ${fmt(s.stillSec)}`;
+    $('drift-line').textContent = s.drifts ? `drifts: ${s.drifts}` : '';
     if (still.spiked()) scene.ripple(0.3 + Math.random() * 0.4, HORIZON + 0.1 + Math.random() * 0.2, 0.8);
     updateRemaining(t, s);
-    return { breath: 0.25, churn };
+    // the lake keeps its own quiet breath going under the bubble, and gets
+    // just a little restless while the bubble is away from home
+    const water = inRing ? churn : Math.max(churn, 0.05);
+    return { breath: idleBreath() * (churn < STILL_GLASS ? 1 : 0.7), churn: water };
+  }
+
+  if (s.tech.kind === 'paddle') {
+    // Paddle counts nothing per frame; taps arrive from the window
+    // listener. The water just keeps breathing on its own underneath.
+    updateRemaining(t, s);
+    return idleBreath();
   }
 
   if (t >= 0) {
@@ -309,6 +388,26 @@ function sessionFrame(nowP) {
   return 0.1;
 }
 
+// A paddle stroke: a ripple where the finger landed (or at the waterline
+// below it, if they tapped the sky), a soft dip, and one more stroke on
+// the count. Nothing here can go wrong; a long gap just means a long gap.
+function paddleTap(xUv, yUv) {
+  const s = session;
+  const nowP = performance.now();
+  s.strokes += 1;
+  if (s.lastTap) {
+    const gap = nowP - s.lastTap;
+    s.gaps.push(gap);
+    s.cadence = paddleCadence(s.cadence, gap);
+  }
+  s.lastTap = nowP;
+  // a tap above the waterline still lands ON the water, just below itself:
+  // the stroke has to leave a mark or the practice has no answer
+  scene.ripple(xUv, Math.max(HORIZON + 0.02, yUv), 1);
+  sound.stroke();
+  $('still-meter').textContent = `stroke ${s.strokes}`;
+}
+
 let lastRemainText = '';
 function updateRemaining(t, s) {
   const remain = Math.max(0, s.seconds - Math.floor(Math.max(0, t) / 1000));
@@ -319,6 +418,7 @@ function updateRemaining(t, s) {
 function teardownSession() {
   if (!session) return;
   clearInterval(session.presenceTimer);
+  bubble = null;
   still.stop();
   sound.voiceStop();
   bloom.guide = false;
@@ -328,6 +428,26 @@ function teardownSession() {
   sound.releaseSession();
   clearTimeout(quietTimer);
   document.body.dataset.quiet = 'false';
+}
+
+// The two attention receipts. Facts, then last time for context, and
+// never a verdict on either.
+function steadyReceipt(s, practicedSec, last) {
+  const lines = [
+    `The bubble stayed home for ${fmt(s.stillSec)} of ${fmt(practicedSec)}.`,
+    driftPhrase(s.drifts),
+  ];
+  if (last) {
+    lines.push(`Last time: ${fmt(last.centeredSec)} and ${last.drifts} ${last.drifts === 1 ? 'drift' : 'drifts'}.`);
+  }
+  return lines.join(' ');
+}
+
+function paddleReceipt(tally, last) {
+  if (!tally || !tally.strokes) return 'No strokes this time. The water waits.';
+  const lines = [`You kept ${tally.onRhythm} of ${tally.strokes} strokes on rhythm. Longest run: ${tally.longestRun}.`];
+  if (last) lines.push(`Last time: ${last.onRhythm} of ${last.strokes}, longest run ${last.longestRun}.`);
+  return lines.join(' ');
 }
 
 function finishSession(completed) {
@@ -341,8 +461,20 @@ function finishSession(completed) {
     Math.max(0, Math.round((endClock - Math.max(s.t0, s.startedAt)) / 1000)));
 
   const before = mapleStage(stats.daysPracticed);
+  const lastSteady = stats.lastSteady, lastPaddle = stats.lastPaddle;
+  const tally = s.key === 'paddle'
+    ? paddleTally(s.gaps, s.cadence || s.tech.cadenceMs) : null;
   stats = recordSession(stats, Date.now(), practicedSec);
-  if (s.key === 'still' && s.stillSec > (stats.glassBest || 0)) stats.glassBest = Math.round(s.stillSec);
+  if (s.key === 'still' && practicedSec >= 30) {
+    if (s.stillSec > (stats.glassBest || 0)) stats.glassBest = Math.round(s.stillSec);
+    stats.lastSteady = {
+      centeredSec: Math.round(s.stillSec), drifts: s.drifts, totalSec: practicedSec,
+    };
+  }
+  if (s.key === 'paddle' && practicedSec >= 30) {
+    if (tally.longestRun > (stats.paddleBestRun || 0)) stats.paddleBestRun = tally.longestRun;
+    stats.lastPaddle = { ...tally, totalSec: practicedSec };
+  }
   saveStats();
   if (stats.monthKey === nyMonthKey(Date.now())) net.submitMonthSeconds(stats.monthSec);
   const after = mapleStage(stats.daysPracticed);
@@ -362,8 +494,8 @@ function finishSession(completed) {
   $('end-sub').textContent =
     practicedSec < 30 ? 'Even sitting down counts for something. The lake will be here.'
     : s.town ? 'You breathed with the whole town tonight.'
-    : s.key === 'still' ? `The water held glass for ${fmt(s.stillSec)}. It ${
-        s.stirs ? `stirred ${s.stirs === 1 ? 'once' : s.stirs === 2 ? 'twice' : `${s.stirs} times`}` : 'never stirred'}.`
+    : s.key === 'still' ? steadyReceipt(s, practicedSec, lastSteady)
+    : s.key === 'paddle' ? paddleReceipt(tally, lastPaddle)
     : '';
   $('end-grow').textContent =
     after.stage > before.stage ? 'Your maple grew.'
@@ -474,6 +606,44 @@ async function refreshShore() {
     : '';
 }
 
+// -------------------------------------------------------------- guide
+
+// One screen, once, after the lake has painted itself: what this place is,
+// before anyone has to guess. Re-openable from Field Notes forever after.
+function buildGuide() {
+  $('guide-title').textContent = GUIDE_TITLE;
+  const wrap = $('guide-steps');
+  wrap.innerHTML = '';
+  for (const line of GUIDE_STEPS) {
+    const p = document.createElement('p');
+    p.className = 'guide-step';
+    p.textContent = line;
+    wrap.append(p);
+  }
+  $('guide-phrases').textContent = MANTRAS.join(' ');
+  $('guide-done').textContent = GUIDE_BUTTON;
+}
+
+function openGuide() {
+  const g = $('guide');
+  g.dataset.open = 'true'; g.inert = false;
+}
+
+function closeGuide() {
+  const g = $('guide');
+  if (g.dataset.open !== 'true') return;
+  g.dataset.open = 'false'; g.inert = true;
+  try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* fine */ }
+}
+
+function maybeShowGuide() {
+  let seen = '1';
+  try { seen = localStorage.getItem(GUIDE_KEY) || ''; } catch { seen = '1'; }
+  if (seen) return;
+  // let the scene arrive first; the welcome is to a place, not a form
+  setTimeout(() => { if (document.body.dataset.view === 'front' && !session) openGuide(); }, 1200);
+}
+
 // -------------------------------------------------------------- bench
 
 function buildBench() {
@@ -485,7 +655,7 @@ function buildBench() {
   fetch('data/builder-note.json').then((r) => r.ok ? r.json() : null).then((note) => {
     if (note && note.body) {
       $('from-builder').hidden = false;
-      $('builder-title').textContent = `From Stephen — ${note.date || ''}`;
+      $('builder-title').textContent = `From Stephen, ${note.date || ''}`;
       $('builder-body').textContent = note.body;
     }
   }).catch(() => { /* fine */ });
@@ -520,7 +690,7 @@ function loop(nowP) {
   }
   if (idle) {
     // the lake breathes gently on its own, always
-    target = breathLevel(TECHNIQUES.lake, Date.now() % 10000) * 0.35;
+    target = idleBreath();
   }
   breathSmooth += (target - breathSmooth) * Math.min(1, dt * 5);
 
@@ -528,6 +698,7 @@ function loop(nowP) {
   scene.draw(st);
   bloom.setColors(st.sunCol, st.skyLow);
   bloom.draw(breathSmooth, HORIZON, dt, idle);
+  if (bubble) bloom.drawBubble(bubble); // Steady's focus object
   // warm-night fireflies; a steady breath draws them toward the bloom
   const flyNight = st.night > 0.55 && (st._season === 'summer' || st._season === 'spring' || st._season === 'foliage');
   bloom.drawFireflies(flyNight, session && !session.tech.steps ? 0.9 : 0.15, dt);
@@ -555,7 +726,12 @@ function wire() {
     if (ts.state === 'lobby' || ts.state === 'live') startSession({ town: true });
     else startSession();
   });
-  $('practice-line').addEventListener('click', () => { buildPracticeSheet(); openSheet('practice-sheet'); });
+  $('guide-done').addEventListener('click', closeGuide);
+  $('open-guide').addEventListener('click', () => {
+    const bench = $('bench');
+    bench.dataset.open = 'false'; bench.inert = true;
+    openGuide();
+  });
   $('stop').addEventListener('click', () => finishSession(false));
   $('end-done').addEventListener('click', () => {
     clearTimeout(finishSession._anchorT);
@@ -568,7 +744,7 @@ function wire() {
   });
   $('felt-worse').addEventListener('click', () => {
     techKey = 'porch'; durationSec = TECHNIQUES.porch.defaultDuration;
-    refreshPracticeLine();
+    buildPracticePicks();
     document.body.dataset.view = 'front'; refreshHome();
     toast('Fair. Front Porch is set: eyes open, no counting. Or just stop for today; that’s fine too.');
   });
@@ -619,10 +795,18 @@ function wire() {
   });
   document.querySelector('.toplinks').prepend(sBtn);
 
-  // touching the water makes ripples: your hand moves the world
+  // touching the water makes ripples: your hand moves the world. During
+  // Paddle every tap anywhere is a stroke, except taps on real controls
+  // (the Stop button must never also count as paddling).
   window.addEventListener('pointerdown', (e) => {
+    const x = e.clientX / window.innerWidth;
     const y = e.clientY / window.innerHeight;
-    if (y > HORIZON) scene.ripple(e.clientX / window.innerWidth, y, 1);
+    // (the iOS tick-zone switch is deliberately NOT excluded: its tap is a
+    // stroke that happens to tick)
+    const onControl = e.target instanceof Element &&
+      e.target.closest('button, a, .sheet, .bench, .guide');
+    if (session && session.tech.kind === 'paddle' && !onControl) paddleTap(x, y);
+    else if (y > HORIZON) scene.ripple(x, y, 1);
     if (session) wakeQuietTimer();
     sound.resumeFromGesture();
   });
@@ -645,8 +829,9 @@ function wire() {
   window.addEventListener('pagehide', () => { if (session) finishSession(false); else net.leave(); });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeAllSheets(); $('bench').dataset.open = 'false'; return; }
+    if (e.key === 'Escape') { closeAllSheets(); $('bench').dataset.open = 'false'; closeGuide(); return; }
     if (e.key !== ' ' && e.key !== 'Enter') return;
+    if ($('guide').dataset.open === 'true') return; // the welcome comes first
     if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLAnchorElement) return;
     e.preventDefault();
     if (session) finishSession(false);
@@ -665,10 +850,12 @@ if ('serviceWorker' in navigator) {
 
 wire();
 buildBench();
-refreshPracticeLine();
+buildGuide();
+buildPracticePicks();
 refreshHome();
 bloom.show(true);
 requestAnimationFrame(loop);
+maybeShowGuide();
 
 if (stats.monthSec > 0 && stats.monthKey === nyMonthKey(Date.now())) {
   net.submitMonthSeconds(stats.monthSec);

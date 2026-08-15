@@ -2,7 +2,7 @@
 
 **Burlington breathes together.** A quiet breathing practice on a Lake
 Champlain horizon — water rises as you inhale, settles as you exhale — with
-the town's evening ritual built in: **The 8:02**, every night at 6:02 PM,
+the town's evening ritual built in: **The 8:02**, every night at 8:02 PM,
 six minutes at six breaths a minute, every phone phase-locked to the same
 wall clock.
 

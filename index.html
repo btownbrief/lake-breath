@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0A0E14">
   <title>Lake Breath — Burlington breathes together</title>
-  <meta name="description" content="A living Lake Champlain that breathes with you. Six breaths a minute; every evening at 6:02 the whole town is on the same inhale.">
+  <meta name="description" content="A living Lake Champlain that breathes with you. Six breaths a minute; every evening at 8:02 the whole town is on the same inhale.">
 
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32" type="image/png">
@@ -17,8 +17,8 @@
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="BTown Brief">
-  <meta property="og:title" content="Lake Breath — Burlington breathes together">
-  <meta property="og:description" content="A living lake that breathes with you. The 8:02: every evening, the whole town on the same inhale.">
+  <meta property="og:title" content="Lake Breath: Burlington breathes together">
+  <meta property="og:description" content="A living lake that breathes with you. The 8:02: every evening at 8:02, the whole town on the same inhale.">
   <meta name="twitter:card" content="summary">
 
   <link rel="preload" href="assets/fonts/fraunces-normal-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -43,12 +43,11 @@
 
     <div class="home-lower">
       <h1 class="greeting" id="greeting">Good evening.</h1>
+      <p class="mantra" id="mantra"></p>
       <p class="undergreeting" id="undergreeting" aria-live="polite"></p>
       <div class="begin-row">
         <button class="begin" id="begin">Breathe</button>
-        <button class="practice-line" id="practice-line">
-          <em id="practice-name">Lake Breath</em> · <em id="practice-mins">5 min</em> · change
-        </button>
+        <div class="practice-picks" id="practice-picks" role="group" aria-label="Choose a practice"></div>
       </div>
       <p class="safety" id="safety-line"></p>
     </div>
@@ -61,6 +60,7 @@
     <p class="remaining" id="remaining"></p>
     <p class="presence-live" id="presence-live" aria-live="polite"></p>
     <p class="still-meter" id="still-meter"></p>
+    <p class="drift-line" id="drift-line"></p>
     <button class="stop chrome" id="stop">stop</button>
     <div id="tick-zone"></div>
   </div>
@@ -128,11 +128,22 @@
         <h2>Field notes</h2>
         <button class="tbtn" data-close="bench">close</button>
       </div>
+      <button class="tbtn guide-link" id="open-guide">the guide</button>
       <div class="from-builder" id="from-builder" hidden>
         <h3 id="builder-title">From Stephen</h3>
         <p id="builder-body"></p>
       </div>
       <div id="bench-notes"></div>
+    </div>
+  </div>
+
+  <!-- ------------------------------------------------------- first run -->
+  <div class="guide" id="guide" data-open="false" inert role="dialog" aria-label="Welcome to the lake">
+    <div class="guide-inner">
+      <h2 id="guide-title">Welcome to the lake</h2>
+      <div id="guide-steps"></div>
+      <p class="guide-phrases" id="guide-phrases"></p>
+      <button class="primary" id="guide-done">Step onto the shore</button>
     </div>
   </div>
 

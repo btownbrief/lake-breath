@@ -142,6 +142,14 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   text-shadow: 0 1px 12px rgba(0, 0, 0, .4);
 }
 .undergreeting b { color: var(--gold); font-weight: 550; }
+/* one of three phrases, today's. Set apart, unexplained. */
+.mantra {
+  font-family: var(--serif); font-style: italic;
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  font-weight: 340; font-size: 1rem; color: var(--ink-faint);
+  margin-top: -6px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .4);
+}
 
 .begin-row { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .begin {
@@ -159,13 +167,22 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
 }
 .begin:active { transform: scale(.965); }
 .begin:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
-.practice-line {
+/* the practice picker: plain words, no pills. The whole menu is visible
+   because a hidden menu is a menu nobody uses. */
+.practice-picks {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 4px 14px; max-width: 34ch;
+}
+.practice-pick {
   background: none; border: 0; cursor: pointer; padding: 2px 0;
   font-family: var(--sans); font-size: .86rem; color: var(--ink-faint);
-  transition: color .25s;
+  border-bottom: 1px solid transparent;
+  transition: color .25s, border-color .25s;
 }
-.practice-line:hover, .practice-line:focus-visible { color: var(--ink-soft); outline: none; }
-.practice-line em { font-style: normal; color: var(--ink-soft); }
+.practice-pick:hover { color: var(--ink-soft); }
+.practice-pick:focus-visible { outline: none; color: var(--ink-soft); border-bottom-color: var(--gold); }
+.practice-pick[aria-pressed="true"] { color: var(--gold); }
+.practice-pick .pick-dur { color: var(--ink-faint); margin-left: 6px; }
 
 .safety {
   font-size: .72rem; line-height: 1.5; color: var(--ink-faint);
@@ -211,6 +228,13 @@ body[data-view="session"] .session-layer { opacity: 1; }
   margin-top: 8px; font-size: .85rem; color: var(--ink-soft); min-height: 1.4em;
   font-variant-numeric: tabular-nums;
 }
+.drift-line {
+  margin-top: 2px; font-size: .78rem; color: var(--ink-faint); min-height: 1.3em;
+  font-variant-numeric: tabular-nums;
+}
+/* Steady: the target ring is drawn at screen centre, so the counters step
+   down below it. Nothing may sit inside the ring. */
+body[data-practice="still"] .still-meter { margin-top: 24vh; }
 .stop {
   margin-top: auto; pointer-events: auto;
   background: none; border: 0; cursor: pointer;
@@ -401,6 +425,46 @@ body[data-view="end"] .end-layer > *:nth-child(7) { animation-delay: .80s; }
 .bench p { color: var(--ink-soft); font-size: .95rem; }
 .bench .from-builder { border-left: 2px solid var(--gold); padding-left: 14px; margin-top: 18px; }
 .bench .close-row { display: flex; justify-content: space-between; align-items: baseline; }
+
+/* the first-run guide: the bench's grammar, one screen, one button */
+.guide {
+  position: fixed; inset: 0; z-index: 24; overflow-y: auto;
+  background: rgba(6, 9, 14, .84);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  padding: max(24px, env(safe-area-inset-top)) 26px calc(40px + env(safe-area-inset-bottom));
+  display: flex; align-items: center;
+  opacity: 0; pointer-events: none; transition: opacity .7s var(--settle);
+}
+.guide[data-open="true"] { opacity: 1; pointer-events: auto; }
+.guide-inner { max-width: 40ch; margin: 0 auto; width: 100%; }
+.guide h2 {
+  font-family: var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  font-weight: 400; font-size: 1.7rem; letter-spacing: -0.01em;
+}
+.guide-step {
+  color: var(--ink-soft); font-size: .95rem; margin-top: 14px;
+}
+.guide-phrases {
+  margin-top: 24px; padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+  font-family: var(--serif); font-style: italic;
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  font-weight: 340; font-size: 1.25rem; color: var(--ink);
+  letter-spacing: .01em;
+}
+.guide .primary {
+  margin-top: 26px;
+  font-family: var(--sans); font-size: 1rem; font-weight: 550; color: var(--ink);
+  background: var(--glass-bg); border: 1px solid var(--glass-edge);
+  border-top-color: rgba(255, 255, 255, .28);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  border-radius: 20px; padding: 14px 30px; cursor: pointer;
+  transition: transform .5s var(--spring);
+}
+.guide .primary:active { transform: scale(.965); }
+.guide-link { margin-top: 4px; color: var(--gold); }
 
 /* toast */
 .toast {

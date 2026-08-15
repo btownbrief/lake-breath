@@ -119,6 +119,46 @@ export class Bloom {
     ctx.restore();
   }
 
+  // Steady's bubble: a spirit level drawn as light. bub.x / bub.y / bub.r
+  // are in units of min(W, H) from the screen centre, so the caller does
+  // the physics and this only paints. Inside the ring the ring warms to
+  // gold and the bubble takes the warm palette colour; outside, both go
+  // cool and quiet. No red, no buzzing, nothing that reads as failure.
+  drawBubble(bub) {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const u = Math.min(W, H);
+    const cx = W * 0.5, cy = H * 0.5;
+    const bx = cx + bub.x * u, by = cy + bub.y * u;
+    const ringR = bub.r * u;
+    const warm = bub.inRing;
+    ctx.save();
+    // the target ring
+    ctx.strokeStyle = warm
+      ? 'rgba(240, 205, 140, 0.42)'
+      : 'rgba(228, 236, 245, 0.16)';
+    ctx.lineWidth = 1.1 * this.dpr;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+    ctx.stroke();
+    // the bubble
+    ctx.globalCompositeOperation = 'screen';
+    const col = warm ? this.colorA : this.colorB;
+    const r = u * 0.052;
+    const g = ctx.createRadialGradient(bx, by, 0, bx, by, r * 2.2);
+    g.addColorStop(0, `rgba(255, 252, 244, ${warm ? 0.72 : 0.5})`);
+    g.addColorStop(0.35, `rgba(${col[0]},${col[1]},${col[2]},${warm ? 0.42 : 0.3})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(bx, by, r * 2.2, 0, Math.PI * 2); ctx.fill();
+    // a thin meniscus edge so it reads as a bubble, not a blur
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = `rgba(255, 252, 244, ${warm ? 0.34 : 0.22})`;
+    ctx.lineWidth = 1 * this.dpr;
+    ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
   show(on) { this.presenceTarget = on ? 1 : 0; }
 
   release() {

@@ -5,11 +5,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   TECHNIQUES, cycleMs, phaseAt, breathLevel,
-  nyParts, nyDateStr, nyMonthKey, nyWallToEpoch,
+  nyParts, nyDateStr, nyMonthKey, nyWallToEpoch, dailyIndex,
   TOWN, townTimes, townState, townPhaseMs,
   seasonFor, skyPhase,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
   presenceId, presenceLine,
+  PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence, paddleTally,
+  driftPhrase,
 } from '../js/engine.js';
 
 // A fixed reference: 2026-08-15 12:00:00 EDT == 16:00 UTC.
@@ -48,6 +50,56 @@ test('sigh second sip tops up past the first inhale', () => {
   assert.equal(breathLevel(sigh, 8500), 0);
 });
 
+// ------------------------------------------------- the doing practices
+
+test('the doing practices are not pacers', () => {
+  // Steady and Paddle carry a kind and no segments: anything that tries to
+  // pace them (cycleMs, phaseAt) would be a bug, not a fallback.
+  assert.equal(TECHNIQUES.still.name, 'Steady');
+  assert.equal(TECHNIQUES.still.kind, 'still');
+  assert.equal(TECHNIQUES.still.segments, undefined);
+  assert.equal(TECHNIQUES.paddle.name, 'Paddle');
+  assert.equal(TECHNIQUES.paddle.kind, 'paddle');
+  assert.equal(TECHNIQUES.paddle.segments, undefined);
+  assert.equal(TECHNIQUES.paddle.cadenceMs, 2000);
+  assert.equal(TECHNIQUES.paddle.defaultDuration, 300);
+  assert.ok(TECHNIQUES.paddle.durations.includes(600));
+});
+
+test('a tap is on rhythm within 35% of the cadence, either side', () => {
+  assert.equal(paddleOnRhythm(2000, 2000), true);
+  assert.equal(paddleOnRhythm(1300, 2000), true);   // exactly -35%
+  assert.equal(paddleOnRhythm(2700, 2000), true);   // exactly +35%
+  assert.equal(paddleOnRhythm(1299, 2000), false);
+  assert.equal(paddleOnRhythm(2701, 2000), false);
+});
+
+test('the paddler sets their own cadence, inside human limits', () => {
+  assert.equal(paddleCadence(null, 1500), 1500);          // their first gap
+  assert.equal(paddleCadence(null, 300), PADDLE_MIN_MS);  // too fast to be paddling
+  assert.equal(paddleCadence(null, 9000), PADDLE_MAX_MS); // too slow to be a rhythm
+  // on-rhythm gaps drift the base slowly; off-rhythm ones leave it alone
+  assert.equal(paddleCadence(1500, 1600), 1520);
+  assert.equal(paddleCadence(1500, 4000), 1500);
+});
+
+test('paddleTally counts strokes, runs and drifts without judging', () => {
+  const t = paddleTally([2000, 2100, 1900, 5000, 2000, 2000], 2000);
+  assert.deepEqual(t, { strokes: 7, onRhythm: 5, longestRun: 3, drifts: 1 });
+  // a gap that misses the window but isn't a wander is not a drift
+  assert.equal(paddleTally([2900], 2000).drifts, 0);
+  assert.equal(paddleTally([3700], 2000).drifts, 1);
+  // no taps at all is zero strokes, not one
+  assert.deepEqual(paddleTally([], 2000), { strokes: 0, onRhythm: 0, longestRun: 0, drifts: 0 });
+});
+
+test('drift copy counts plainly and never scolds', () => {
+  assert.equal(driftPhrase(0), 'It never drifted.');
+  assert.equal(driftPhrase(1), 'It drifted once.');
+  assert.equal(driftPhrase(2), 'It drifted twice.');
+  assert.equal(driftPhrase(5), 'It drifted 5 times.');
+});
+
 // -------------------------------------------------------- Burlington time
 
 test('nyParts reads Burlington wall clock regardless of host TZ', () => {
@@ -74,6 +126,22 @@ test('nyWallToEpoch round-trips in both EST and EDT', () => {
   assert.equal(nyParts(july).minute, 2);
   assert.equal(nyParts(jan).hour, 18);
   assert.equal(jan - Date.UTC(2026, 0, 4, 23, 2), 0); // EST = UTC-5
+});
+
+test('the daily pick is stable all day and rotates with the NY date', () => {
+  const morning = nyWallToEpoch(2026, 8, 15, 7, 0);
+  const night = nyWallToEpoch(2026, 8, 15, 23, 30);
+  assert.equal(dailyIndex(morning, 3), dailyIndex(night, 3));
+  assert.equal(dailyIndex(AUG_NOON, 3), dailyIndex(AUG_NOON + 3600000, 3));
+  // always in range, and not stuck on one value across a fortnight
+  const seen = new Set();
+  for (let i = 0; i < 14; i++) {
+    const idx = dailyIndex(AUG_NOON + i * 86400000, 3);
+    assert.ok(idx >= 0 && idx < 3);
+    seen.add(idx);
+  }
+  assert.ok(seen.size > 1, 'the phrase must actually rotate');
+  assert.equal(dailyIndex(AUG_NOON, 0), 0); // no crash on an empty list
 });
 
 // --------------------------------------------------------------- the 8:02
