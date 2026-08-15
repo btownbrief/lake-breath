@@ -897,6 +897,15 @@ async function sendTypedNote() {
     : 'Couldn’t send right now. One note every couple hours, or the lake is offline.';
   if (ok) box.value = '';
   btn.disabled = false;
+  if (!ok) return;
+  // A quick server-side read (Claude behind an edge function) can put a
+  // clearly kind note on the wall right away. Anything less than a clear
+  // yes keeps the human-queue promise above, so this only ever upgrades.
+  const status = await net.checkNote();
+  if (status === 'approved') {
+    $('note-sent').textContent = 'On the wall. Thanks, neighbor.';
+    refreshWall();
+  }
 }
 
 // -------------------------------------------------------------- shore

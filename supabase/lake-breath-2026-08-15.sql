@@ -23,6 +23,13 @@
 --      >>> secret into lb_mod_hash() below. Instructions are on the
 --      >>> function. Until you do, the queue stays shut: the gate fails
 --      >>> closed on the placeholder, so nobody gets in, including you.
+--
+--      OPTIONAL, for near-real-time notes: deploy the edge function in
+--      supabase/functions/note-check/index.ts (deploy steps are at the
+--      top of that file; it needs an ANTHROPIC_API_KEY secret). Claude
+--      then approves clearly kind notes onto the wall within seconds and
+--      leaves anything uncertain for you in mod.html. Without it, every
+--      note simply waits for you, exactly as described above.
 --   3. lb_town_seconds — Burlington's quiet minutes this month, summed
 --      from the existing lake-breath leaderboard rows (each player's
 --      score is their cumulative completed seconds this NY month).

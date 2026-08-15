@@ -91,6 +91,19 @@ to the same wall clock.
   working secret in sessionStorage only. Wall age runs off `approved_at`,
   never `created_at` — moving `created_at` would reset the sender's rate
   limit. Wall rendering stays `textContent`, forever.
+- **Auto-moderation only ever fast-tracks; the human queue is the
+  authority.** `supabase/functions/note-check/index.ts` (a Supabase Edge
+  Function holding `ANTHROPIC_API_KEY` as a server secret — the key must
+  never appear client-side) reads a freshly sent note and may approve it
+  onto the wall immediately, hold it for `mod.html`, or delete clear
+  abuse. Every failure path (function missing, key unset, timeout, model
+  refusal, parse error, hourly budget cap) resolves to "hold", which is
+  the pre-existing behavior. The sender is never told a note was
+  auto-rejected — rejects read exactly like holds, so the filter can't be
+  probed. A decided hold stamps `approved_at` while `approved` stays
+  false (harmless: nothing reads `approved_at` on unapproved rows, and
+  `lb_moderate` overwrites it on approve) so one note can never be
+  re-checked in a loop to burn API credit.
 - **The doing practices account for themselves in the engine.** Steady's
   centered time and drift episodes are `steadyStep()`; Paddle judges each
   gap as it lands with `paddleStroke()`, against the cadence current at

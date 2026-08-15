@@ -123,6 +123,30 @@ export async function sendText(text) {
   } catch (e) { offline(e); return false; }
 }
 
+// After a note is sent, ask the note-check edge function to read it right
+// away. Server-side it holds the Anthropic key and either approves the
+// note onto the wall, leaves it for the human queue, or drops clear abuse.
+// Returns 'approved' when the note is already live; anything else means
+// "a neighbor will read it soon" stays true. Fails soft in every way: if
+// the function isn't deployed yet, times out, or errors, the note simply
+// waits for a person like before.
+export async function checkNote() {
+  if (!navigator.onLine) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const res = await fetch(`${SUPABASE_URL}functions/v1/note-check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app: APP, pid: pid() }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const out = await res.json();
+    return out && typeof out.status === 'string' ? out.status : null;
+  } catch { return null; } finally { clearTimeout(t); }
+}
+
 // ---- moderation (mod.html only) ---------------------------------------
 
 // The queue, for whoever holds the secret. Returns [] on any failure,
