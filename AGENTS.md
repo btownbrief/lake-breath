@@ -60,6 +60,34 @@ to the same wall clock.
   everywhere — the wonk axis stays off; this is a calm serif, not a
   quirky one.
 
+## v3 notes: the local layer
+
+- **`js/town.js` is the only file that talks to Burlington.** Five static
+  JSON feeds off `guide.btownbrief.com/data/` (weather latest + read,
+  events rail, calendar anchors, the GoodBurlington queue), plain GETs, no
+  headers. Budget: one `Promise.allSettled` per refresh, localStorage TTL
+  60 min, hourly while visible plus a catch-up when a hidden tab returns
+  older than 30 min. Every getter is synchronous and returns
+  cached-or-null; nothing in the UI may assume data exists.
+- **Accent doctrine: never louder than the scene.** The two home lines are
+  small, dim sans and hide entirely without data. The palette tint is
+  capped at 6% on the sun and low sky (4% grey for a wet tomorrow) and is
+  meant to be felt, not seen — if you can name the colour change, it's a
+  bug. The shore pennants are a few pixels of gold beside the maple and
+  dim with the maple at night. `anchorEvent()` is strictly forward-looking:
+  the next calendar anchor inside 7 days, never anything past. The
+  `'fools'` jester styling is a keyword match that lights itself up when
+  Festival of Fools comes back around; gold pennants are the common case.
+- **Notes are freeform and moderated.** The client only calls
+  `lb_send_text`; every note lands `approved=false`. Approval happens in
+  `mod.html` (linked nowhere, not in the service worker's SHELL) against
+  `lb_mod_secret()`, which Stephen edits in the SQL before running it.
+  Wall rendering stays `textContent`, forever.
+- **Just Sit is the plain timer** (`kind: 'timer'`): no phase words, no
+  cues, bloom in idle presence, and the only ending in the app that uses
+  `sound.gong()` instead of the bowl. Its length comes off the minute dial
+  and lives in `localStorage['lakebreath-sit-mins']`, not in stats.
+
 ## Layout
 
 - `js/engine.js` — pure logic (breath math, NY time, the 8:02, maple, stats)
@@ -69,6 +97,8 @@ to the same wall clock.
 - `js/scene-gl.js` / `js/bloom.js` / `js/stillness.js` — see v2 notes above
 - `js/haptics.js` — tiered: Android vibrate / iOS native-switch tick / none
 - `js/net.js` — presence, kind-notes wall, town minutes, score submission
+- `js/town.js` — the Burlington feeds (weather, events, anchors, good news)
+- `mod.html` — the note queue, secret-gated, linked from nowhere
 - `supabase/` — SQL to paste (safe to re-run)
 - `scripts/make-icons.mjs` — regenerates the PNG icons, no dependencies
 

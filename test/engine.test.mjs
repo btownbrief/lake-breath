@@ -66,6 +66,22 @@ test('the doing practices are not pacers', () => {
   assert.ok(TECHNIQUES.paddle.durations.includes(600));
 });
 
+test('Just Sit is a plain timer with a minute range, not a pacer', () => {
+  const t = TECHNIQUES.timer;
+  assert.equal(t.name, 'Just Sit');
+  assert.equal(t.kind, 'timer');
+  assert.equal(t.segments, undefined);
+  assert.equal(t.steps, undefined);
+  assert.equal(t.durations, undefined);   // the dial replaces preset buttons
+  assert.equal(t.minMinutes, 1);
+  assert.equal(t.maxMinutes, 20);
+  assert.equal(t.defaultDuration, 600);
+  assert.ok(t.defaultDuration / 60 >= t.minMinutes && t.defaultDuration / 60 <= t.maxMinutes);
+  // and it sits second in the picker order, right after the daily practice
+  assert.deepEqual(Object.keys(TECHNIQUES),
+    ['lake', 'timer', 'sigh', 'box', 'still', 'paddle', 'porch']);
+});
+
 test('a tap is on rhythm within 35% of the cadence, either side', () => {
   assert.equal(paddleOnRhythm(2000, 2000), true);
   assert.equal(paddleOnRhythm(1300, 2000), true);   // exactly -35%

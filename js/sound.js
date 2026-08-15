@@ -304,6 +304,30 @@ export function bowl() {
   }
 }
 
+// The gong: Just Sit's ending. Deeper and slower than the bowl, and it
+// SWELLS in from silence over about two seconds rather than striking —
+// nobody sitting with their eyes closed should be startled awake by the
+// end of their own sit. Then it holds, and takes twelve seconds to go.
+export function gong() {
+  if (!ctx || !enabled || ctx.state !== 'running') return;
+  const t = ctx.currentTime + 0.03;
+  const swell = 1.8, hold = 0.9, decay = 12;
+  const root = 118; // a deep fundamental, low enough to feel like a room
+  // inharmonic partials: a gong is not a harmonic series, that's the sound
+  for (const [ratio, amp] of [[1, 0.30], [1.004, 0.17], [2.37, 0.075], [3.61, 0.035], [5.09, 0.018]]) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = root * ratio;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(amp, t + swell);
+    g.gain.setValueAtTime(amp, t + swell + hold);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + swell + hold + decay);
+    osc.connect(g).connect(verb);
+    osc.start(t); osc.stop(t + swell + hold + decay + 0.3);
+  }
+}
+
 // Far out on the water, sometimes, at night.
 export function maybeLoon(nightAmount) {
   if (!ctx || !enabled || ctx.state !== 'running' || nightAmount < 0.5) return;

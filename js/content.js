@@ -3,10 +3,11 @@
 // never touch logic. House style: no em dashes in any of the copy below.
 // Periods, commas and colons do the work.
 
-// The kind-notes wall: tap to send one of these to the town. Curated on
-// purpose — freeform text and photos arrive once the approve-to-reveal
-// queue exists (see README). Ids are stable; the SQL validates against
-// this count, so APPEND ONLY — never renumber or delete.
+// The kind-notes wall. People write their own notes now (see
+// NOTE_EXAMPLES below); these presets stay for the notes already on the
+// wall from the preset era, which still render by id. Ids are stable; the
+// SQL validates against this count, so APPEND ONLY, never renumber or
+// delete.
 export const NOTE_PRESETS = [
   { id: 1, text: 'Sending good vibes across the lake', emoji: '🌊' },
   { id: 2, text: 'Beautiful day out there. Hope you get outside', emoji: '☀️' },
@@ -29,6 +30,16 @@ export const NOTE_PRESETS = [
 export function presetById(id) {
   return NOTE_PRESETS.find((p) => p.id === id) || null;
 }
+
+// The note box's placeholder, one a day. These are examples of the
+// register, not options: nobody can send one by tapping it. A neighbor
+// reads every note before the wall does.
+export const NOTE_EXAMPLES = [
+  'Beautiful day out there, hope you get outside',
+  'Proud of whoever needed to hear it today',
+  'The lake says hi',
+  'May your week be gentle',
+];
 
 // The three phrases. One a day, chosen by the Burlington date, so the whole
 // town gets the same one. No attribution, no explaining them on the home

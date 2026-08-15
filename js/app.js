@@ -5,24 +5,26 @@
 import {
   TECHNIQUES, phaseAt, breathLevel,
   townState, TOWN,
-  seasonFor, skyPhase, nyParts, nyDateStr, nyMonthKey, dailyIndex,
+  seasonFor, skyPhase, nyParts, nyMonthKey, dailyIndex,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
   presenceLine, paddleCadence, paddleTally, driftPhrase,
 } from './engine.js';
 import {
-  NOTE_PRESETS, presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
-  MANTRAS, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
+  presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
+  MANTRAS, NOTE_EXAMPLES, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
 } from './content.js';
 import * as sound from './sound.js';
 import * as haptics from './haptics.js';
 import * as net from './net.js';
 import * as still from './stillness.js';
+import * as town from './town.js';
 import { LakeScene, palette, celestial } from './scene-gl.js';
 import { Bloom } from './bloom.js';
 
 const $ = (id) => document.getElementById(id);
 const STATS_KEY = 'lakebreath-stats';
 const GUIDE_KEY = 'lakebreath-guided';
+const SIT_KEY = 'lakebreath-sit-mins';   // Just Sit's dial, remembered
 const STILL_GLASS = 0.12; // churn below this = the water reads as glass
 
 // Steady's geometry, in units of min(canvasW, canvasH) so it means the
@@ -32,6 +34,11 @@ const STILL_GLASS = 0.12; // churn below this = the water reads as glass
 const STEADY_RING = 0.11;
 const STEADY_GAIN = 1.5;
 let bubble = null; // {x, y, r, inRing} while Steady is running, else null
+// The upcoming town anchor, re-read only when the feeds change — the draw
+// loop must never parse dates. townDirty holds a refresh that landed while
+// somebody was mid-sit.
+let anchorNow = null;
+let townDirty = false;
 
 // ------------------------------------------------------------- state
 
@@ -46,6 +53,24 @@ let quietTimer = 0;
 
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* fine */ }
+}
+
+// Just Sit's minutes live outside stats: it's a preference, not a record.
+function sitMins() {
+  const t = TECHNIQUES.timer;
+  let n = t.defaultDuration / 60;
+  try { n = parseInt(localStorage.getItem(SIT_KEY) || '', 10) || n; } catch { /* fine */ }
+  return Math.min(t.maxMinutes, Math.max(t.minMinutes, n));
+}
+function setSitMins(n) {
+  try { localStorage.setItem(SIT_KEY, String(n)); } catch { /* fine */ }
+}
+
+// Every practice but Just Sit carries a fixed list of lengths; Just Sit
+// carries a range and a dial. One helper so no caller has to know which.
+function durationFor(tech, current) {
+  if (tech.kind === 'timer') return sitMins() * 60;
+  return tech.durations.includes(current) ? current : tech.defaultDuration;
 }
 
 // ------------------------------------------------------------- scene
@@ -67,7 +92,11 @@ function sceneState(nowMs, breath, churn) {
     const phaseNow = skyPhase(nowMs);
     const phaseSoon = skyPhase(nowMs + 30 * 60000);
     const blend = phaseNow === phaseSoon ? 0 : (p.minute % 30) / 30;
-    const pal = palette(phaseNow, phaseSoon, blend, season);
+    // The palette whisper: tomorrow's weather leans the sun and low sky a
+    // few percent warm, cool, or grey. Under the threshold of noticing on
+    // purpose — the point is a lean, not a filter. Re-read every minute,
+    // so a background feed refresh lands without a reload.
+    const pal = town.tintPalette(palette(phaseNow, phaseSoon, blend, season), town.tomorrow(nowMs));
     const night = phaseNow === 'night' ? 1 : (phaseSoon === 'night' ? blend : (phaseNow === 'dusk' || phaseNow === 'dawn' ? 0.3 : 0));
     const dayFrac = (p.hour * 60 + p.minute) / 1440;
     const cel = celestial(dayFrac, night);
@@ -93,7 +122,11 @@ function closeAllSheets() {
 }
 
 const fmt = (sec) => `${Math.floor(sec / 60)}:${String(Math.round(sec) % 60).padStart(2, '0')}`;
-const durLabel = (secs) => secs < 180 ? `${secs} sec` : `${Math.round(secs / 60)} min`;
+// Short practices read better in seconds; the minute dial always speaks
+// minutes, because that's the unit the person just chose.
+const durLabel = (secs, tech) => tech && tech.kind === 'timer'
+  ? `${Math.round(secs / 60)} min`
+  : (secs < 180 ? `${secs} sec` : `${Math.round(secs / 60)} min`);
 // The lake's own breath: what the water does when nothing is pacing it.
 const idleBreath = () => breathLevel(TECHNIQUES.lake, Date.now() % 10000) * 0.35;
 
@@ -108,8 +141,111 @@ function greetingFor(nowMs) {
   return 'Up late.';
 }
 
+// ------------------------------------------------------- the town lines
+
+// Two quiet lines under the greeting: what the sky does tomorrow, and what
+// the town is up to. Both hide themselves completely when there's no data,
+// which is also what happens offline and if a feed 404s.
+
+const SVGNS = 'http://www.w3.org/2000/svg';
+
+function svgEl(name, attrs) {
+  const el = document.createElementNS(SVGNS, name);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+// Which glyph the forecast wants. NWS 'short' is the honest signal; pop and
+// the month only break ties (a wet December is snow, a wet July is rain).
+function glyphKind(short, pop, month) {
+  const s = String(short || '').toLowerCase();
+  if (/snow|flurr|sleet|ice|wintry|blizzard/.test(s)) return 'snow';
+  if (/rain|shower|storm|thunder|drizzle/.test(s)) return 'rain';
+  if (pop >= 50) return (month === 12 || month <= 2) ? 'snow' : 'rain';
+  if (/cloud|overcast|fog|haze/.test(s)) return 'cloud';
+  return 'sun';
+}
+
+function weatherGlyph(kind) {
+  const svg = svgEl('svg', { viewBox: '0 0 24 24', class: 'town-glyph', 'aria-hidden': 'true' });
+  const stroke = { fill: 'none', stroke: 'currentColor', 'stroke-width': 1.7, 'stroke-linecap': 'round' };
+  if (kind === 'sun') {
+    svg.append(svgEl('circle', { cx: 12, cy: 12, r: 4.6, ...stroke }));
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      svg.append(svgEl('line', {
+        x1: 12 + Math.cos(a) * 7.4, y1: 12 + Math.sin(a) * 7.4,
+        x2: 12 + Math.cos(a) * 9.6, y2: 12 + Math.sin(a) * 9.6, ...stroke,
+      }));
+    }
+    return svg;
+  }
+  if (kind === 'snow') {
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI;
+      svg.append(svgEl('line', {
+        x1: 12 - Math.cos(a) * 8, y1: 12 - Math.sin(a) * 8,
+        x2: 12 + Math.cos(a) * 8, y2: 12 + Math.sin(a) * 8, ...stroke,
+      }));
+    }
+    return svg;
+  }
+  // cloud, and rain = the same cloud with three falling strokes
+  svg.append(svgEl('path', {
+    d: 'M7.2 16.4a3.7 3.7 0 0 1 .5-7.35 5.1 5.1 0 0 1 9.75 1.5 3.2 3.2 0 0 1-.45 5.85z', ...stroke,
+  }));
+  if (kind === 'rain') {
+    for (let i = 0; i < 3; i++) {
+      svg.append(svgEl('line', { x1: 8.5 + i * 3.5, y1: 18.4, x2: 7.6 + i * 3.5, y2: 21.4, ...stroke }));
+    }
+  }
+  return svg;
+}
+
+function fillTownLine(el, kind, text) {
+  el.textContent = '';
+  if (!text) { el.hidden = true; return; }
+  if (kind) el.append(weatherGlyph(kind));
+  el.append(document.createTextNode(text));
+  el.hidden = false;
+}
+
+// The event line has two jobs. A big local anchor inside the week wins;
+// otherwise tonight's marquee from the events rail, so the line is useful
+// every week of the year and not only festival weeks.
+function eventLineText(now, a) {
+  if (a) {
+    if (a.startsInDays === 0) return `${a.label} starts today.`;
+    if (a.startsInDays === 1) return `${a.label} starts tomorrow.`;
+    return `${a.label} is this week.`;
+  }
+  const t = town.eventsTonight(now);
+  if (t && t.headline) {
+    return t.n > 1
+      ? `Tonight in town: ${t.headline}, and ${t.n - 1} more.`
+      : `Tonight in town: ${t.headline}.`;
+  }
+  return '';
+}
+
+function applyTownLines() {
+  const now = Date.now();
+  townDirty = false;
+  anchorNow = town.anchorEvent(now);
+  const tw = town.tomorrow(now);
+  if (tw) {
+    const month = nyParts(now).month;
+    const text = tw.blurb || `Tomorrow: ${tw.highF}° and ${tw.short.toLowerCase()}.`;
+    fillTownLine($('town-tomorrow'), glyphKind(tw.short, tw.pop, month), text);
+  } else {
+    fillTownLine($('town-tomorrow'), null, '');
+  }
+  fillTownLine($('town-event'), null, eventLineText(now, anchorNow));
+}
+
 async function refreshHome() {
   const now = Date.now();
+  applyTownLines();
   $('greeting').textContent = greetingFor(now);
   // one of three phrases, the same one all day for everyone in town
   $('mantra').textContent = MANTRAS[dailyIndex(now, MANTRAS.length)];
@@ -154,13 +290,13 @@ function buildPracticePicks() {
     if (key === techKey) {
       const d = document.createElement('span');
       d.className = 'pick-dur';
-      d.textContent = `· ${durLabel(durationSec)}`;
+      d.textContent = `· ${durLabel(durationSec, tech)}`;
       b.append(d);
     }
     b.addEventListener('click', () => {
       if (key === techKey) { buildPracticeSheet(); openSheet('practice-sheet'); return; }
       techKey = key;
-      if (!tech.durations.includes(durationSec)) durationSec = tech.defaultDuration;
+      durationSec = durationFor(tech, durationSec);
       buildPracticePicks();
     });
     wrap.append(b);
@@ -168,6 +304,95 @@ function buildPracticePicks() {
 }
 
 // ------------------------------------------------------ practice sheet
+
+// Just Sit's minute dial: a row of numbers you scroll, the centred one
+// being the choice. A wheel asks "how long feels right" instead of
+// offering three answers somebody else picked. Snap does the deciding,
+// scrollend (or a timeout, for Safari) does the committing, and the arrow
+// keys step a minute for anyone not using a thumb.
+function buildMinuteDial(tech) {
+  const dial = document.createElement('div');
+  dial.className = 'minute-dial';
+  dial.tabIndex = 0;
+  dial.setAttribute('role', 'slider');
+  dial.setAttribute('aria-label', 'How many minutes');
+  dial.setAttribute('aria-valuemin', String(tech.minMinutes));
+  dial.setAttribute('aria-valuemax', String(tech.maxMinutes));
+
+  const track = document.createElement('div');
+  track.className = 'dial-track';
+  for (let m = tech.minMinutes; m <= tech.maxMinutes; m++) {
+    const b = document.createElement('span');
+    b.className = 'dial-min';
+    b.dataset.min = String(m);
+    b.textContent = String(m);
+    track.append(b);
+  }
+  dial.append(track);
+
+  const items = () => [...track.children];
+  const mark = (mins) => {
+    for (const el of items()) {
+      el.dataset.on = String(parseInt(el.dataset.min, 10) === mins);
+    }
+    dial.setAttribute('aria-valuenow', String(mins));
+    dial.setAttribute('aria-valuetext', `${mins} min`);
+  };
+  const centerOn = (mins, smooth) => {
+    const el = items().find((e) => parseInt(e.dataset.min, 10) === mins);
+    if (!el) return;
+    const left = el.offsetLeft - (dial.clientWidth - el.offsetWidth) / 2;
+    if (smooth && dial.scrollTo) dial.scrollTo({ left, behavior: 'smooth' });
+    else dial.scrollLeft = left;
+  };
+  const centered = () => {
+    const mid = dial.scrollLeft + dial.clientWidth / 2;
+    let best = sitMins(), bestD = Infinity;
+    for (const el of items()) {
+      const d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid);
+      if (d < bestD) { bestD = d; best = parseInt(el.dataset.min, 10); }
+    }
+    return best;
+  };
+  const commit = () => {
+    const mins = centered();
+    if (mins === sitMins() && durationSec === mins * 60) { mark(mins); return; }
+    setSitMins(mins);
+    durationSec = mins * 60;
+    mark(mins);
+    buildPracticePicks();
+  };
+  const step = (delta) => {
+    const next = Math.min(tech.maxMinutes, Math.max(tech.minMinutes, sitMins() + delta));
+    setSitMins(next);
+    durationSec = next * 60;
+    mark(next);
+    centerOn(next, true);
+    buildPracticePicks();
+  };
+
+  let settle = 0;
+  dial.addEventListener('scroll', () => {
+    clearTimeout(settle);
+    settle = setTimeout(commit, 160); // Safari has no scrollend yet
+  }, { passive: true });
+  dial.addEventListener('scrollend', () => { clearTimeout(settle); commit(); });
+  dial.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); step(-1); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); step(1); }
+  });
+  track.addEventListener('click', (e) => {
+    const el = e.target instanceof Element ? e.target.closest('.dial-min') : null;
+    if (!el) return;
+    const mins = parseInt(el.dataset.min, 10);
+    setSitMins(mins); durationSec = mins * 60;
+    mark(mins); centerOn(mins, true); buildPracticePicks();
+  });
+
+  mark(sitMins());
+  requestAnimationFrame(() => centerOn(sitMins(), false));
+  return dial;
+}
 
 function buildPracticeSheet() {
   const wrap = $('practice-rows');
@@ -183,6 +408,7 @@ function buildPracticeSheet() {
     tag.className = 'tag';
     tag.textContent = {
       lake: 'The daily practice. In four, out six; the water breathes with you.',
+      timer: 'Set a length and sit however you like. A slow gong marks the end.',
       sigh: 'Two sips in, one long sigh out. Ninety seconds to reset.',
       box: 'Four even sides. For people who already love it.',
       still: 'Phone flat like a full bowl. Keep the bubble inside the ring and let your thoughts wander.',
@@ -192,13 +418,17 @@ function buildPracticeSheet() {
     row.append(name, tag);
     row.addEventListener('click', () => {
       techKey = key;
-      if (!tech.durations.includes(durationSec)) durationSec = tech.defaultDuration;
+      durationSec = durationFor(tech, durationSec);
       buildPracticePicks(); buildPracticeSheet();
       closeSheet('practice-sheet');
     });
     wrap.append(row);
     // duration controls are siblings, never buttons-inside-a-button
-    if (key === techKey && tech.durations.length > 1) {
+    if (key === techKey && tech.kind === 'timer') {
+      wrap.append(buildMinuteDial(tech));
+      continue;
+    }
+    if (key === techKey && tech.durations && tech.durations.length > 1) {
       const durs = document.createElement('div');
       durs.className = 'durations';
       durs.setAttribute('role', 'group');
@@ -231,18 +461,20 @@ async function grabWakeLock() {
 function dropWakeLock() { try { wakeLock?.release(); } catch { /* fine */ } wakeLock = null; }
 
 let starting = false;
-async function startSession({ town = false } = {}) {
+// (the flag is destructured as isTown throughout: the town data module is
+// imported as `town`, and a shadowed name here would be a trap)
+async function startSession({ town: isTown = false } = {}) {
   if (session || starting) return; // double-tap / keyboard re-entry guard
   starting = true;
-  try { await startSessionInner({ town }); } finally { starting = false; }
+  try { await startSessionInner({ town: isTown }); } finally { starting = false; }
 }
 
-async function startSessionInner({ town = false } = {}) {
-  const key = town ? 'lake' : techKey;
+async function startSessionInner({ town: isTown = false } = {}) {
+  const key = isTown ? 'lake' : techKey;
   const tech = TECHNIQUES[key];
   const now = Date.now();
   let t0 = now, seconds = durationSec;
-  if (town) {
+  if (isTown) {
     const ts = townState(now);
     if (ts.state !== 'live' && ts.state !== 'lobby') return;
     t0 = ts.start; seconds = TOWN.seconds;
@@ -260,7 +492,7 @@ async function startSessionInner({ town = false } = {}) {
   grabWakeLock();
 
   session = {
-    key, tech, t0, seconds, town,
+    key, tech, t0, seconds, town: isTown,
     startedAt: now, lastSegI: -1, porchStep: -1,
     stillSec: 0, drifts: 0, lastT: performance.now(),
     // Paddle: taps come in from the window listener, gaps get judged at
@@ -274,13 +506,15 @@ async function startSessionInner({ town = false } = {}) {
   net.beat().then((n) => { if (session) $('presence-live').textContent = presenceLine(n ?? 0) || ''; });
 
   // Steady's bubble and Paddle's ripples are the focus object; the bloom
-  // steps aside for both.
-  bloom.show(!(tech.kind || tech.steps));
+  // steps aside for both. Just Sit has no focus object at all, so the
+  // bloom stays exactly as it is on the home screen: gentle idle presence.
+  bloom.show(!(tech.steps || (tech.kind && tech.kind !== 'timer')));
   bubble = null;
   $('phase-word').textContent = '';
   $('phase-sub').textContent =
-    town ? 'The 8:02. The whole town, one clock'
+    isTown ? 'The 8:02. The whole town, one clock'
       : tech.steps ? PORCH_INTRO
+      : tech.kind === 'timer' ? 'The lake keeps time. Sit however you like.'
       : tech.kind === 'still' ? 'Phone flat like a full bowl. Keep the bubble home. Let your thoughts wander where they want.'
       : tech.kind === 'paddle' ? 'Tap the water at your own steady pace. Like paddle strokes. Keep the rhythm; let your mind go where it wants.'
       : '';
@@ -317,6 +551,14 @@ function sessionFrame(nowP) {
     if (step !== s.porchStep) { s.porchStep = step; $('phase-sub').textContent = s.tech.steps[step]; sound.cue('in', 1.2); }
     updateRemaining(t, s);
     return 0.3;
+  }
+
+  if (s.tech.kind === 'timer') {
+    // Just Sit: nothing to run. The clock counts down, the lake breathes
+    // its own gentle breath, and the gong is the only event in the whole
+    // practice. Deliberately the least code in this file.
+    updateRemaining(t, s);
+    return idleBreath();
   }
 
   if (s.tech.kind === 'still') {
@@ -450,6 +692,20 @@ function paddleReceipt(tally, last) {
   return lines.join(' ');
 }
 
+// One good thing from the neighborhood, on the end screen, in the slot the
+// science plaques leave behind. textContent only: the title is somebody
+// else's words arriving over the network.
+function showGoodNews(allowed) {
+  const box = $('goodnews');
+  const gn = allowed ? town.goodNews() : null;
+  if (!gn) { box.hidden = true; return; }
+  const a = $('gn-title');
+  a.textContent = gn.title;
+  a.href = gn.url;
+  $('gn-why').textContent = gn.why || '';
+  box.hidden = false;
+}
+
 function finishSession(completed) {
   if (!session) return;
   const s = session;
@@ -482,7 +738,10 @@ function finishSession(completed) {
   // ---- the release: the one moment we spend everything on
   if (completed && practicedSec >= 30) {
     bloom.release();
-    sound.unlock(); sound.bowl(); haptics.phaseTurn('bell');
+    sound.unlock();
+    // Just Sit ends on the slow gong; everything else keeps the bowl.
+    if (s.tech.kind === 'timer') sound.gong(); else sound.bowl();
+    haptics.phaseTurn('bell');
   }
   bloom.show(false);
 
@@ -519,7 +778,12 @@ function finishSession(completed) {
     saveStats();
   } else plaque.hidden = true;
 
+  // The plaque slot is shared. A science line goes first while any are
+  // left; once they're all read, the neighborhood's good news moves in.
+  showGoodNews(plaque.hidden && practicedSec >= 30);
+
   refreshWall();
+  if (townDirty) applyTownLines(); // feeds that refreshed mid-sit land now
   $('note-sent').textContent = '';
   setTimeout(() => { document.body.dataset.view = 'end'; }, completed && practicedSec >= 30 ? 1500 : 150);
 
@@ -563,26 +827,29 @@ async function refreshWall() {
   }
 }
 
+// The note sheet: people write their own words now. The old preset lines
+// survive only as the placeholder, one a day, as examples of the register
+// we're hoping for. A neighbor reads everything before the wall does.
 function buildNoteSheet() {
-  const wrap = $('note-rows');
-  wrap.innerHTML = '';
-  const day = parseInt(nyDateStr(Date.now()).slice(8), 10);
-  const picks = [...NOTE_PRESETS].filter((_, i) => (i + day) % 3 !== 0).slice(0, 7);
-  for (const p of picks) {
-    const b = document.createElement('button');
-    b.className = 'note-row';
-    b.textContent = `${p.text} ${p.emoji}`;
-    b.addEventListener('click', async () => {
-      b.disabled = true;
-      closeSheet('note-sheet');
-      const ok = await net.sendNote(p.id);
-      $('note-sent').textContent = ok
-        ? 'Sent. It’s on the town wall for the next two days.'
-        : 'Couldn’t send right now. One note every couple hours, or the lake is offline.';
-      if (ok) refreshWall();
-    });
-    wrap.append(b);
-  }
+  const box = $('note-text');
+  box.value = '';
+  box.placeholder = NOTE_EXAMPLES[dailyIndex(Date.now(), NOTE_EXAMPLES.length)];
+  $('note-send').disabled = false;
+}
+
+async function sendTypedNote() {
+  const box = $('note-text');
+  const btn = $('note-send');
+  const text = box.value.trim();
+  if (text.length < 3) { box.focus(); return; }
+  btn.disabled = true;
+  closeSheet('note-sheet');
+  const ok = await net.sendText(text);
+  $('note-sent').textContent = ok
+    ? 'Sent. A neighbor will read it soon and put it on the wall.'
+    : 'Couldn’t send right now. One note every couple hours, or the lake is offline.';
+  if (ok) box.value = '';
+  btn.disabled = false;
 }
 
 // -------------------------------------------------------------- shore
@@ -710,6 +977,8 @@ function loop(nowP) {
   }[st._season] || [56, 108, 66];
   const dim = 1 - st.night * 0.55;
   bloom.drawMaple(m.stage, m.max, leaf.map((v) => Math.round(v * dim)));
+  // something is happening in town: small pennants on the shore spit
+  if (anchorNow) bloom.drawPennants(anchorNow.kind, dim);
   sound.maybeLoon(st.night);
 
   requestAnimationFrame(loop);
@@ -749,6 +1018,7 @@ function wire() {
     toast('Fair. Front Porch is set: eyes open, no counting. Or just stop for today; that’s fine too.');
   });
   $('send-note').addEventListener('click', () => { buildNoteSheet(); openSheet('note-sheet'); });
+  $('note-send').addEventListener('click', sendTypedNote);
   $('open-shore').addEventListener('click', () => { refreshShore(); openSheet('shore-sheet'); });
   $('open-bench').addEventListener('click', () => {
     const bench = $('bench');
@@ -824,6 +1094,9 @@ function wire() {
     } else {
       sound.resumeFromGesture();
       refreshHome();
+      // a tab that sat on a home screen all night comes back to stale
+      // weather; half an hour is old enough to be worth a quiet fetch
+      if (town.ageMs() > 30 * 60000) town.refresh().then(townChanged);
     }
   });
   window.addEventListener('pagehide', () => { if (session) finishSession(false); else net.leave(); });
@@ -832,7 +1105,10 @@ function wire() {
     if (e.key === 'Escape') { closeAllSheets(); $('bench').dataset.open = 'false'; closeGuide(); return; }
     if (e.key !== ' ' && e.key !== 'Enter') return;
     if ($('guide').dataset.open === 'true') return; // the welcome comes first
-    if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement || e.target instanceof HTMLAnchorElement) return;
+    // a space typed into the note box is a space, never a session
+    if (e.target instanceof HTMLButtonElement || e.target instanceof HTMLInputElement
+      || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLAnchorElement) return;
+    if (e.target instanceof Element && e.target.classList.contains('minute-dial')) return;
     e.preventDefault();
     if (session) finishSession(false);
     else if (document.body.dataset.view === 'front') startSession();
@@ -840,6 +1116,20 @@ function wire() {
 
   window.addEventListener('resize', () => { scene.resize(); bloom.resize(); });
   setInterval(() => { if (!session && document.body.dataset.view === 'front') refreshHome(); }, 30000);
+  // This app lives on home screens and stays open for days, so the town
+  // has to keep itself current on its own. Hourly while visible, quietly.
+  setInterval(() => {
+    if (!document.hidden) town.refresh().then(townChanged);
+  }, 60 * 60000);
+}
+
+// New town data landed. Redraw the two lines, unless somebody is mid-sit,
+// in which case it waits: nothing text-shaped may move during a session.
+function townChanged(changed) {
+  if (!changed) return;
+  if (session) { townDirty = true; return; }
+  applyTownLines();
+  townDirty = false;
 }
 
 if ('serviceWorker' in navigator) {
@@ -853,6 +1143,8 @@ buildBench();
 buildGuide();
 buildPracticePicks();
 refreshHome();
+// the local layer, fetched in the background and drawn whenever it lands
+town.refresh().then(townChanged);
 bloom.show(true);
 requestAnimationFrame(loop);
 maybeShowGuide();

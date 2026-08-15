@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Lake Breath: the note queue</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* This page is a back room, not part of the app: no scene, no chrome,
+       just the tokens from style.css so it feels like the same place. */
+    body { overflow: auto; background: oklch(14% 0.02 250); }
+    .mod { max-width: 46rem; margin: 0 auto; padding: 34px 22px 80px; }
+    .mod h1 { font-family: var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 0;
+      font-weight: 400; font-size: 1.7rem; }
+    .mod .sub { color: var(--ink-soft); font-size: .92rem; margin-top: 6px; }
+    .gate { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+    .gate input { flex: 1 1 16rem; background: rgba(255,255,255,.06); color: var(--ink);
+      border: 1px solid var(--glass-edge); border-radius: 12px; padding: 11px 14px;
+      font-family: var(--sans); font-size: .95rem; }
+    .gate button, .row button { font-family: var(--sans); font-size: .88rem; cursor: pointer;
+      background: none; color: var(--ink-soft); border: 1px solid var(--glass-edge);
+      border-radius: 12px; padding: 10px 16px; }
+    .gate button:hover, .row button:hover { color: var(--ink); border-color: var(--gold); }
+    .row { border-top: 1px solid rgba(255,255,255,.1); padding: 14px 0;
+      display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+    .row .body { flex: 1 1 20rem; color: var(--ink); font-size: .98rem; }
+    .row .when { color: var(--ink-faint); font-size: .76rem; }
+    .status { margin-top: 16px; color: var(--ink-faint); font-size: .88rem; min-height: 1.4em; }
+  </style>
+</head>
+<body>
+  <main class="mod">
+    <h1>The note queue</h1>
+    <p class="sub">Approved notes appear on the town wall for 48 hours.</p>
+    <form class="gate" id="gate">
+      <label class="sr-only" for="secret">Moderator secret</label>
+      <input type="password" id="secret" autocomplete="current-password" placeholder="moderator secret">
+      <button type="submit">Open the queue</button>
+    </form>
+    <div id="list"></div>
+    <p class="status" id="status"></p>
+  </main>
+
+  <script type="module">
+    import { fetchPending, moderate } from './js/net.js';
+
+    const $ = (id) => document.getElementById(id);
+    const KEY = 'lakebreath-mod';
+    const say = (m) => { $('status').textContent = m; };
+    const secret = () => $('secret').value.trim();
+
+    function ago(iso) {
+      const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+      if (mins < 2) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const h = Math.round(mins / 60);
+      return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+    }
+
+    async function load() {
+      const s = secret();
+      if (!s) { say('Enter the secret from the SQL file.'); return; }
+      try { localStorage.setItem(KEY, s); } catch { /* fine */ }
+      say('Looking…');
+      const rows = await fetchPending(s);
+      const list = $('list');
+      list.textContent = '';
+      if (!rows.length) {
+        say('Nothing waiting. (An empty queue and a wrong secret look the same from here.)');
+        return;
+      }
+      say(`${rows.length} waiting.`);
+      for (const r of rows) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const body = document.createElement('span');
+        body.className = 'body';
+        body.textContent = r.body || '';
+        const when = document.createElement('span');
+        when.className = 'when';
+        when.textContent = ago(r.created_at);
+        const ok = document.createElement('button');
+        ok.textContent = 'Approve';
+        const no = document.createElement('button');
+        no.textContent = 'Remove';
+        const act = async (approve) => {
+          ok.disabled = no.disabled = true;
+          const done = await moderate(secret(), r.id, approve);
+          if (done) { row.remove(); say(approve ? 'Approved.' : 'Removed.'); }
+          else { ok.disabled = no.disabled = false; say('That did not go through.'); }
+        };
+        ok.addEventListener('click', () => act(true));
+        no.addEventListener('click', () => act(false));
+        row.append(body, when, ok, no);
+        list.append(row);
+      }
+    }
+
+    $('gate').addEventListener('submit', (e) => { e.preventDefault(); load(); });
+    try {
+      const saved = localStorage.getItem(KEY);
+      if (saved) { $('secret').value = saved; load(); }
+    } catch { /* fine */ }
+  </script>
+</body>
+</html>

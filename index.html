@@ -45,6 +45,8 @@
       <h1 class="greeting" id="greeting">Good evening.</h1>
       <p class="mantra" id="mantra"></p>
       <p class="undergreeting" id="undergreeting" aria-live="polite"></p>
+      <p class="town-line" id="town-tomorrow" hidden></p>
+      <p class="town-line" id="town-event" hidden></p>
       <div class="begin-row">
         <button class="begin" id="begin">Breathe</button>
         <div class="practice-picks" id="practice-picks" role="group" aria-label="Choose a practice"></div>
@@ -71,6 +73,11 @@
     <p class="end-sub" id="end-sub"></p>
     <p class="end-grow" id="end-grow"></p>
     <p class="plaque" id="plaque" hidden></p>
+    <div class="goodnews" id="goodnews" hidden>
+      <span class="gn-label">Good news from the neighborhood</span>
+      <a class="gn-title" id="gn-title" target="_blank" rel="noopener"></a>
+      <span class="gn-why" id="gn-why"></span>
+    </div>
     <div class="wall">
       <span class="wall-label">From your neighbors</span>
       <ul id="wall-list"></ul>
@@ -94,7 +101,11 @@
   <div class="sheet" id="note-sheet" data-open="false" inert role="dialog" aria-label="Send a kind note">
     <button class="close" data-close="note-sheet">close</button>
     <h2>To the town</h2>
-    <div id="note-rows"></div>
+    <label class="sr-only" for="note-text">Your note to the town</label>
+    <textarea id="note-text" class="note-text" rows="3" maxlength="280"
+      autocomplete="off" autocapitalize="sentences" spellcheck="true"></textarea>
+    <button class="note-send" id="note-send">Send</button>
+    <p class="note-sub">Notes are read by a neighbor before they appear on the wall.</p>
   </div>
 
   <div class="sheet" id="shore-sheet" data-open="false" inert role="dialog" aria-label="Your shore">

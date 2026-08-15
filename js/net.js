@@ -110,6 +110,38 @@ export async function sendNote(presetId) {
   } catch (e) { offline(e); return false; }
 }
 
+// Send a note somebody wrote. The server trims, checks 3..280 characters,
+// strips control characters, rate-limits one per neighbor per two hours,
+// and stores it unapproved: a person reads it before the wall does.
+export async function sendText(text) {
+  if (!ready || !navigator.onLine) return false;
+  const body = String(text || '').trim();
+  if (body.length < 3 || body.length > 280) return false;
+  try {
+    await rpc('lb_send_text', { p_app: APP, p_pid: pid(), p_text: body });
+    return true;
+  } catch (e) { offline(e); return false; }
+}
+
+// ---- moderation (mod.html only) ---------------------------------------
+
+// The queue, for whoever holds the secret. Returns [] on any failure,
+// including a wrong secret — mod.html says so in its own words.
+export async function fetchPending(secret) {
+  try {
+    const rows = await rpc('lb_pending', { p_secret: String(secret || '') });
+    return Array.isArray(rows) ? rows : [];
+  } catch { return []; }
+}
+
+// approve = true puts it on the wall; false deletes it outright.
+export async function moderate(secret, id, approve) {
+  try {
+    await rpc('lb_moderate', { p_secret: String(secret || ''), p_id: id, p_approve: !!approve });
+    return true;
+  } catch { return false; }
+}
+
 // ---- score submission -------------------------------------------------
 
 // The Community Exhale rides the existing leaderboard: each device submits

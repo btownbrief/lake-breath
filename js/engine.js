@@ -16,6 +16,18 @@ export const TECHNIQUES = {
     durations: [180, 300, 600],
     defaultDuration: 300,
   },
+  timer: {
+    name: 'Just Sit',
+    tag: 'the lake keeps time',
+    // The classic timer, and the simplest way in: pick a length, sit
+    // however you like, and a slow gong marks the end. No pacing, no
+    // phase words, no cues. Length comes off a minute dial, not preset
+    // buttons, so there is no "right" answer offered.
+    kind: 'timer',
+    minMinutes: 1,
+    maxMinutes: 20,
+    defaultDuration: 600,
+  },
   sigh: {
     name: 'Quick Sigh',
     tag: 'fast reset',

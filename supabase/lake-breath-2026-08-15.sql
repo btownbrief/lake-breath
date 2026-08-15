@@ -10,11 +10,18 @@
 --      identity. One RPC (lb_beat) both heartbeats and returns the count
 --      of OTHERS; lb_look reads without registering; lb_leave is the
 --      polite exit. Sweeping rides along on writes — zero maintenance.
---   2. lb_notes — the kind-notes wall. Launch content is preset-only:
---      the client sends a preset id, the server checks the range and a
---      2-hour per-neighbor rate limit, and the note is live. A free-text
---      column exists but anything with text inserts approved=false —
---      that's the future approve-to-reveal queue, nothing reads it yet.
+--   2. lb_notes — the kind-notes wall. People write their OWN notes:
+--      lb_send_text takes 3..280 characters, strips control characters,
+--      rate-limits one per neighbor per 2 hours, and stores the note
+--      UNAPPROVED. Nothing reaches the wall until a human approves it in
+--      mod.html (lb_pending / lb_moderate, gated by lb_mod_secret).
+--      lb_send_note, the old preset path, still works for the transition;
+--      the client no longer calls it.
+--
+--      >>> BEFORE YOU RUN THIS: edit lb_mod_secret() below and replace
+--      >>> the placeholder with your own long random string. That string
+--      >>> is the ONLY thing standing between the internet and the
+--      >>> moderation queue.
 --   3. lb_town_seconds — Burlington's quiet minutes this month, summed
 --      from the existing lake-breath leaderboard rows (each player's
 --      score is their cumulative completed seconds this NY month).
@@ -149,6 +156,79 @@ begin
   values (p_app, p_pid, p_preset, true);
 end $$;
 
+-- Send a note somebody wrote. Trimmed, length-checked, control characters
+-- stripped, and stored approved=false: the wall shows nothing until a
+-- human says so. Same 2-hour per-neighbor limit as the preset path.
+create or replace function public.lb_send_text(p_app text, p_pid text, p_text text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare clean text;
+begin
+  -- strip control characters (newlines and tabs included: the wall is one
+  -- line per note), collapse runs of whitespace, then trim
+  clean := btrim(regexp_replace(regexp_replace(coalesce(p_text, ''),
+             '[[:cntrl:]]', ' ', 'g'), '\s+', ' ', 'g'));
+  if char_length(clean) < 3 or char_length(clean) > 280 then
+    raise exception 'bad_text';
+  end if;
+  perform pg_advisory_xact_lock(hashtext(p_app || '|' || p_pid));
+  if exists (select 1 from lb_notes
+             where app = p_app and pid = p_pid
+               and created_at > now() - interval '2 hours') then
+    raise exception 'slow_down';
+  end if;
+  delete from lb_notes where created_at < now() - interval '7 days';
+  insert into lb_notes (app, pid, body, approved)
+  values (p_app, p_pid, clean, false);
+end $$;
+
+-- ---------------------------------------------------------- moderation
+
+-- EDIT THIS BEFORE RUNNING. Replace the placeholder with a long random
+-- string (a password manager's "generate" is perfect). It is the whole
+-- gate on the moderation queue: anyone holding it can approve or delete
+-- notes. Paste the same string into mod.html when it asks. To rotate it,
+-- edit and re-run this one function.
+create or replace function public.lb_mod_secret() returns text
+language sql immutable as $$ select 'CHANGE-ME-BEFORE-RUNNING-a-long-random-string'::text; $$;
+
+-- Never grant this one to anon: the secret must not be readable, only
+-- comparable inside the two functions below.
+revoke all on function public.lb_mod_secret() from public, anon, authenticated;
+
+-- The queue: notes waiting on a human, newest first.
+create or replace function public.lb_pending(p_secret text)
+returns table (id uuid, body text, created_at timestamptz)
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_secret is null or p_secret <> lb_mod_secret() then
+    raise exception 'bad_secret';
+  end if;
+  return query
+    select n.id, n.body, n.created_at
+    from lb_notes n
+    where not n.approved and n.body is not null
+    order by n.created_at desc
+    limit 50;
+end $$;
+
+-- Approve puts it on the wall for 48 hours; the other way deletes it.
+create or replace function public.lb_moderate(p_secret text, p_id uuid, p_approve boolean)
+returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if p_secret is null or p_secret <> lb_mod_secret() then
+    raise exception 'bad_secret';
+  end if;
+  if p_approve then
+    -- created_at moves to now so an approved note gets its full 48 hours
+    -- on the wall rather than aging out while it sat in the queue
+    update lb_notes set approved = true, created_at = now() where id = p_id;
+  else
+    delete from lb_notes where id = p_id;
+  end if;
+end $$;
+
 -- ------------------------------------------------------ the town's month
 
 -- Burlington's completed seconds this NY month, from the existing scores
@@ -172,10 +252,17 @@ revoke all on function public.lb_look(text) from public;
 revoke all on function public.lb_leave(text, text) from public;
 revoke all on function public.lb_wall(text) from public;
 revoke all on function public.lb_send_note(text, text, int) from public;
+revoke all on function public.lb_send_text(text, text, text) from public;
+revoke all on function public.lb_pending(text) from public;
+revoke all on function public.lb_moderate(text, uuid, boolean) from public;
 revoke all on function public.lb_town_seconds(text) from public;
 grant execute on function public.lb_beat(text, text) to anon;
 grant execute on function public.lb_look(text) to anon;
 grant execute on function public.lb_leave(text, text) to anon;
 grant execute on function public.lb_wall(text) to anon;
 grant execute on function public.lb_send_note(text, text, int) to anon;
+grant execute on function public.lb_send_text(text, text, text) to anon;
+-- the secret is the gate on these two, not the grant
+grant execute on function public.lb_pending(text) to anon;
+grant execute on function public.lb_moderate(text, uuid, boolean) to anon;
 grant execute on function public.lb_town_seconds(text) to anon;

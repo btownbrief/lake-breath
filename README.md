@@ -30,10 +30,16 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
   (the only haptic left on iOS web).
 - **The 8:02** — the nightly town breath with a live neighbor count and a
   shared closing bell. Sync is pure wall-clock math; no server conducts it.
-- **The kind-notes wall** — after a session, send one of a curated set of
-  good notes to the town ("Beautiful day out there — hope you get
-  outside"). Freeform notes and photo spots are designed but wait on the
-  approve-to-reveal moderation queue.
+- **The kind-notes wall** — after a session, write your own short note to
+  the town. Every note is held unapproved until a human reads it in the
+  moderation queue, then it sits on the wall for 48 hours. The old preset
+  lines survive only as the placeholder examples in the note box.
+- **The local layer** — a few quiet lines of real Burlington. Tomorrow's
+  weather (with the day's own blurb when the guide has written one), the
+  next big local moment or tonight's marquee event, and one good link from
+  the neighborhood on the end screen. Tomorrow's forecast also leans the
+  palette a few percent warm, cool, or grey: under the threshold of
+  noticing, which is the point.
 - **Your maple** — a tree on your shore that only ever grows, reaching
   full canopy around day 66 of practice (the honest habit-formation
   number). No streaks, no flames, nothing to break.
@@ -47,14 +53,35 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
 
 1. **Deploy:** push to `main` — GitHub Pages serves the repo root at
    `play.btownbrief.com/lake-breath/`. No build step.
-2. **Backend (one-time):** paste `supabase/lake-breath-2026-08-15.sql`
-   into the shared btown-games Supabase project's SQL editor and run.
-   Until then the app hides presence, the wall, and town totals.
-3. **Note:** the shared arcade nav.js is deliberately omitted — a
+2. **Backend (one-time):** open `supabase/lake-breath-2026-08-15.sql`,
+   **replace the placeholder in `lb_mod_secret()` with a long random
+   string**, then paste the whole file into the shared btown-games
+   Supabase project's SQL editor and run. Until then the app hides
+   presence, the wall, and town totals.
+3. **Moderating notes:** open `/lake-breath/mod.html` (linked from nowhere
+   in the app, not cached by the service worker), paste that same secret,
+   and approve or remove what's waiting. Approved notes appear on the town
+   wall for 48 hours; nothing reaches the wall unread.
+4. **Note:** the shared arcade nav.js is deliberately omitted — a
    meditation scene is a sanctuary, not a portal; a quiet link to the
    arcade lives on the Your Shore sheet instead.
-4. **Catalog:** add an entry to the guide repo's `data/catalog.json` so
+5. **Catalog:** add an entry to the guide repo's `data/catalog.json` so
    the hub shows it.
+
+## The local layer
+
+`js/town.js` reads five small static JSON files from
+`guide.btownbrief.com/data/` with plain GETs: `weather/latest.json` (NWS
+periods), `weather/read.json` (a written one-liner per day),
+`events/rail.json` (per-day event counts and picks), `calendar.json` (the
+hand-kept annual anchors), and `goodburlington-queue.json` (good
+neighborhood links, often empty). Everything is cached in localStorage for
+60 minutes, refreshed in the background hourly while the tab is visible and
+whenever a hidden tab comes back older than 30 minutes, and every getter
+returns cached-or-null so a 404, an offline phone, or blocked storage just
+hides a line. `?townfix=1` (upcoming anchor), `?townfix=2` (no anchor, rail
+marquee) and `?townfix=3` (a jester-keyword anchor) serve baked fixtures
+and never touch the network.
 
 ## Verify
 

@@ -151,6 +151,17 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   text-shadow: 0 1px 12px rgba(0, 0, 0, .4);
 }
 
+/* the local layer: two whispers under the greeting. Small, sans, dim —
+   they must never compete with the greeting or the button. */
+.town-line {
+  display: flex; align-items: center; gap: 7px;
+  font-size: .82rem; color: var(--ink-faint); max-width: 40ch;
+  margin-top: -6px;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .45);
+}
+.town-line[hidden] { display: none; }
+.town-glyph { width: 13px; height: 13px; flex: none; opacity: .8; }
+
 .begin-row { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .begin {
   font-family: var(--sans); font-size: 1.06rem; font-weight: 550;
@@ -320,6 +331,7 @@ body[data-view="end"] .end-layer > *:nth-child(4) { animation-delay: .45s; }
 body[data-view="end"] .end-layer > *:nth-child(5) { animation-delay: .58s; }
 body[data-view="end"] .end-layer > *:nth-child(6) { animation-delay: .70s; }
 body[data-view="end"] .end-layer > *:nth-child(7) { animation-delay: .80s; }
+body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
 @keyframes rise { to { opacity: 1; transform: translateY(0); } }
 
 /* ------------------------------------------------------------- sheets */
@@ -371,13 +383,80 @@ body[data-view="end"] .end-layer > *:nth-child(7) { animation-delay: .80s; }
 }
 .durations button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--gold); }
 
-/* note sheet rows */
+/* Just Sit's minute dial: a scroll-snapped row of numbers, the centred one
+   being the choice. The mask fades the ends so it reads as a wheel that
+   continues past the edges rather than a list that stops. */
+.minute-dial {
+  margin: 12px 0 4px;
+  display: flex; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  outline: none;
+}
+.minute-dial::-webkit-scrollbar { display: none; }
+.minute-dial:focus-visible { border-radius: 14px; box-shadow: inset 0 0 0 1.5px var(--gold); }
+.dial-track { display: flex; padding-inline: calc(50% - 1.6rem); }
+.dial-min {
+  flex: none; width: 3.2rem; text-align: center;
+  scroll-snap-align: center;
+  font-family: var(--sans); font-variant-numeric: tabular-nums;
+  font-size: 1.05rem; line-height: 2.4rem; color: var(--ink-faint);
+  transition: color .25s var(--settle), font-size .25s var(--settle);
+  cursor: pointer;
+}
+.dial-min[data-on="true"] {
+  color: var(--gold); font-size: 1.7rem; font-weight: 550;
+}
+.dial-min[data-on="true"]::after {
+  content: 'min'; display: block; margin-top: -8px;
+  font-size: .62rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 400;
+}
+
+/* note sheet: people write their own words now */
 .note-row {
   width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
   padding: 11px 0; border-top: 1px solid rgba(255,255,255,.08);
   font-family: var(--sans); font-size: .95rem; color: var(--ink-soft);
 }
 .note-row:hover { color: var(--ink); }
+.note-text {
+  width: 100%; margin-top: 12px; resize: none;
+  background: rgba(255, 255, 255, .06); color: var(--ink);
+  border: 1px solid var(--glass-edge); border-radius: 14px;
+  padding: 12px 14px; font-family: var(--sans); font-size: 1rem; line-height: 1.45;
+  -webkit-user-select: text; user-select: text;
+}
+.note-text::placeholder { color: var(--ink-faint); }
+.note-text:focus-visible { outline: none; border-color: var(--gold); }
+.note-send {
+  margin-top: 12px; cursor: pointer;
+  font-family: var(--sans); font-size: 1rem; font-weight: 550; color: var(--ink);
+  background: var(--glass-bg); border: 1px solid var(--glass-edge);
+  border-top-color: rgba(255, 255, 255, .28);
+  border-radius: 18px; padding: 12px 28px;
+  transition: transform .5s var(--spring);
+}
+.note-send:active { transform: scale(.965); }
+.note-send[disabled] { opacity: .5; }
+.note-sub { margin-top: 10px; font-size: .8rem; color: var(--ink-faint); max-width: 40ch; }
+
+/* good news from the neighborhood: the plaque's slot, in the sans voice */
+.goodnews { margin-top: 16px; max-width: 44ch; display: flex; flex-direction: column; gap: 3px; }
+.goodnews[hidden] { display: none; }
+.gn-label {
+  font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 550;
+}
+.gn-title {
+  font-size: .96rem; color: var(--ink); text-decoration: none;
+  border-bottom: 1px solid var(--ink-faint); align-self: flex-start;
+}
+.gn-title:hover { border-bottom-color: var(--gold); }
+.gn-why { font-size: .82rem; color: var(--ink-faint); }
 
 /* shore sheet */
 .shore-days { display: flex; gap: 7px; margin: 12px 0 4px; }
