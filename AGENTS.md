@@ -65,7 +65,8 @@ to the same wall clock.
 - `js/engine.js` — pure logic (breath math, NY time, the 8:02, maple, stats)
 - `js/content.js` — every user-facing word that isn't markup
 - `js/app.js` — DOM controller, session loop, wiring
-- `js/audio.js` — synthesized swells + bell (Web Audio, zero assets)
+- `js/sound.js` — generative soundscape + cues + bowl (Web Audio, zero assets)
+- `js/scene-gl.js` / `js/bloom.js` / `js/stillness.js` — see v2 notes above
 - `js/haptics.js` — tiered: Android vibrate / iOS native-switch tick / none
 - `js/net.js` — presence, kind-notes wall, town minutes, score submission
 - `supabase/` — SQL to paste (safe to re-run)

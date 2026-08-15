@@ -8,13 +8,30 @@
 // iOS notes handled: gesture-gated resume, audioSession 'playback' where
 // available, interrupted-state recovery, fade-then-suspend on hide.
 
+import { nyParts } from './engine.js';
+
 let ctx = null, master = null, verb = null, layers = null;
-let enabled = true, ambientOn = false, loonTimer = 0;
+let enabled = true, ambientOn = false, loonTimer = 0, suspendTimer = 0;
 
 export function soundEnabled() { return enabled; }
 export function setSoundEnabled(on) {
   enabled = !!on;
-  if (!on) stopAmbient(); else if (ctx) startAmbient();
+  if (!on) {
+    stopAmbient();
+    // silence everything already in flight (bowl tails, cues, loons)
+    if (ctx && master) {
+      try {
+        master.gain.cancelScheduledValues(ctx.currentTime);
+        master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.1);
+      } catch { /* fine */ }
+    }
+  } else if (ctx) {
+    try {
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setTargetAtTime(0.7, ctx.currentTime, 0.2);
+    } catch { /* fine */ }
+    startAmbient();
+  }
 }
 
 function makeNoise(color = 'brown', seconds = 3) {
@@ -50,12 +67,14 @@ function loopNoise(buf) {
   return src;
 }
 
-function lfo(freq, depth, center, param) {
+// Purely additive modulation: the param's base value is set ONCE by the
+// caller; LFOs only ever contribute their oscillation on top. (A previous
+// version reset the base here — two LFOs on one param silenced the layer.)
+function lfo(freq, depth, param) {
   const osc = ctx.createOscillator();
   osc.frequency.value = freq;
   const g = ctx.createGain(); g.gain.value = depth;
   osc.connect(g).connect(param);
-  param.value = center;
   osc.start();
   return osc;
 }
@@ -96,8 +115,8 @@ function startAmbient() {
   {
     const src = loopNoise(brown);
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 240;
-    const g = ctx.createGain();
-    L.oscs.push(lfo(0.031, 0.012, 0.055, g.gain));
+    const g = ctx.createGain(); g.gain.value = 0.055;
+    L.oscs.push(lfo(0.031, 0.012, g.gain));
     src.connect(lp).connect(g).connect(master);
     L.nodes.push(src, lp, g);
   }
@@ -105,13 +124,13 @@ function startAmbient() {
   //    a second incommensurate LFO keeps it from ever repeating
   {
     const src = loopNoise(brown);
-    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
-    const g = ctx.createGain();
-    const pan = ctx.createStereoPanner();
-    L.oscs.push(lfo(0.082, 320, 520, lp.frequency));
-    L.oscs.push(lfo(0.082, 0.035, 0.045, g.gain));
-    L.oscs.push(lfo(0.053, 0.018, 0, g.gain));      // incommensurate drift
-    L.oscs.push(lfo(0.017, 0.3, 0, pan.pan));
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520;
+    const g = ctx.createGain(); g.gain.value = 0.045;
+    const pan = ctx.createStereoPanner(); pan.pan.value = 0;
+    L.oscs.push(lfo(0.082, 320, lp.frequency));
+    L.oscs.push(lfo(0.082, 0.035, g.gain));
+    L.oscs.push(lfo(0.053, 0.018, g.gain));      // incommensurate drift
+    L.oscs.push(lfo(0.017, 0.3, pan.pan));
     src.connect(lp).connect(g).connect(pan).connect(master);
     g.connect(verb);
     L.nodes.push(src, lp, g, pan);
@@ -120,23 +139,24 @@ function startAmbient() {
   {
     const src = loopNoise(white);
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1600;
-    const g = ctx.createGain();
-    L.oscs.push(lfo(0.082, 0.010, 0.008, g.gain));
-    const pan = ctx.createStereoPanner();
-    L.oscs.push(lfo(0.023, 0.35, 0.1, pan.pan));
+    const g = ctx.createGain(); g.gain.value = 0.008;
+    L.oscs.push(lfo(0.082, 0.010, g.gain));
+    const pan = ctx.createStereoPanner(); pan.pan.value = 0.1;
+    L.oscs.push(lfo(0.023, 0.35, pan.pan));
     src.connect(hp).connect(g).connect(pan).connect(master);
     L.nodes.push(src, hp, g, pan);
   }
-  // 4. the pad — root+fifth+octave, detuned and drifting, voiced by hour
+  // 4. the pad — root+fifth+octave, detuned and drifting, voiced by
+  //    Burlington's hour (product time is NY everywhere)
   {
-    const hour = new Date().getHours();
+    const hour = nyParts(Date.now()).hour;
     const root = hour < 6 ? 98.0 : hour < 11 ? 146.8 : hour < 18 ? 130.8 : 110.0; // G2/D3/C3/A2
     for (const [ratio, amp] of [[1, 0.030], [1.5, 0.018], [2, 0.014], [2.997, 0.006]]) {
       const osc = ctx.createOscillator();
       osc.type = 'sine'; osc.frequency.value = root * ratio;
-      L.oscs.push(lfo(0.05 + Math.random() * 0.06, 4, 0, osc.detune));
-      const g = ctx.createGain();
-      L.oscs.push(lfo(0.02 + Math.random() * 0.03, amp * 0.5, amp, g.gain));
+      L.oscs.push(lfo(0.05 + Math.random() * 0.06, 4, osc.detune));
+      const g = ctx.createGain(); g.gain.value = amp;
+      L.oscs.push(lfo(0.02 + Math.random() * 0.03, amp * 0.5, g.gain));
       osc.connect(g).connect(verb);
       osc.start();
       L.oscs.push(osc);
@@ -157,13 +177,59 @@ function stopAmbient() {
 export function fadeOutAndSuspend() {
   if (!ctx) return;
   try {
+    master.gain.cancelScheduledValues(ctx.currentTime);
     master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.15);
-    setTimeout(() => { try { ctx.suspend(); } catch { /* fine */ } }, 500);
+    clearTimeout(suspendTimer);
+    suspendTimer = setTimeout(() => { try { ctx.suspend(); } catch { /* fine */ } }, 500);
   } catch { /* fine */ }
 }
 export function resumeFromGesture() {
   if (!ctx || !enabled) return;
-  try { ctx.resume(); master.gain.setTargetAtTime(0.7, ctx.currentTime, 0.4); } catch { /* fine */ }
+  clearTimeout(suspendTimer); // a rapid return must not be re-suspended
+  try {
+    ctx.resume();
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setTargetAtTime(0.7, ctx.currentTime, 0.4);
+  } catch { /* fine */ }
+}
+
+// ------------------------------------------------- the continuous voice
+
+// A quiet tone that RIDES the breath — pitch and volume rise with the
+// inhale and settle with the exhale, so the ear always knows where the
+// breath is, not just when it turns. Updated ~10x/sec from the app loop.
+let voice = null;
+export function voiceStart() {
+  if (!ctx || !enabled || ctx.state !== 'running' || voice) return;
+  const osc = ctx.createOscillator();
+  const osc2 = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'triangle'; osc2.type = 'sine';
+  osc.frequency.value = 220; osc2.frequency.value = 331;
+  const g2 = ctx.createGain(); g2.gain.value = 0.35;
+  g.gain.value = 0.0001;
+  osc.connect(g); osc2.connect(g2).connect(g);
+  g.connect(verb);
+  const dry = ctx.createGain(); dry.gain.value = 0.4;
+  g.connect(dry).connect(master);
+  osc.start(); osc2.start();
+  voice = { osc, osc2, g };
+}
+export function voiceLevel(level) {
+  if (!voice || !ctx) return;
+  const t = ctx.currentTime;
+  const f = 196 + level * 130;               // G3 rising toward a fifth up
+  voice.osc.frequency.setTargetAtTime(f, t, 0.12);
+  voice.osc2.frequency.setTargetAtTime(f * 1.5, t, 0.12);
+  voice.g.gain.setTargetAtTime(0.012 + level * 0.05, t, 0.15);
+}
+export function voiceStop() {
+  if (!voice || !ctx) return;
+  const v = voice; voice = null;
+  try {
+    v.g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.3);
+    setTimeout(() => { try { v.osc.stop(); v.osc2.stop(); v.g.disconnect(); } catch { /* fine */ } }, 1500);
+  } catch { /* fine */ }
 }
 
 // --------------------------------------------------------- breath cues
@@ -202,6 +268,22 @@ export function bowl() {
   }
 }
 
+// A stone meeting the water: skip = a bright plunk, sink = a deeper bloop.
+export function plunk(skips) {
+  if (!ctx || !enabled || ctx.state !== 'running') return;
+  const t = ctx.currentTime + 0.01;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'sine';
+  const f = skips > 0 ? 620 + Math.min(skips, 6) * 60 : 190;
+  osc.frequency.setValueAtTime(f, t);
+  osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.12);
+  g.gain.setValueAtTime(skips > 0 ? 0.10 : 0.16, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + (skips > 0 ? 0.14 : 0.3));
+  osc.connect(g).connect(verb);
+  osc.start(t); osc.stop(t + 0.35);
+}
+
 // Far out on the water, sometimes, at night.
 export function maybeLoon(nightAmount) {
   if (!ctx || !enabled || ctx.state !== 'running' || nightAmount < 0.5) return;
@@ -224,6 +306,8 @@ export function maybeLoon(nightAmount) {
   osc.connect(g).connect(verb);
   osc.start(t); osc.stop(t + 2.3); vib.start(t); vib.stop(t + 2.3);
 }
+
+export function audioCtx() { return ctx; }
 
 export function releaseSession() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch { /* fine */ }

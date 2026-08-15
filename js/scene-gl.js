@@ -137,6 +137,19 @@ export class LakeScene {
     this.ok = false;
     this.ripples = [];   // {x, y, t, s}
     this.uniforms = {};
+    this._t = 0;         // scene clock, scalable (reduced-motion slows it)
+    this._lastNow = performance.now();
+    this.timeScale = 1;
+    this._rippleBuf = new Float32Array(20);
+    // mobile browsers shed WebGL contexts under memory pressure — recover
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.ok = false;
+      this.onContextChange?.(false);
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      try { this._init(); this.onContextChange?.(this.ok); } catch { this.ok = false; }
+    });
     try { this._init(); } catch { this.ok = false; }
   }
 
@@ -167,7 +180,7 @@ export class LakeScene {
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     for (const name of ['u_res', 'u_time', 'u_breath', 'u_night', 'u_horizon',
       'u_skyTop', 'u_skyLow', 'u_waterHi', 'u_waterLo', 'u_sunCol', 'u_ridge',
-      'u_sun', 'u_sunSize', 'u_ripple', 'u_bloom', 'u_churn']) {
+      'u_sun', 'u_sunSize', 'u_ripple', 'u_churn']) {
       this.uniforms[name] = gl.getUniformLocation(prog, name);
     }
     this.ok = true;
@@ -198,7 +211,10 @@ export class LakeScene {
   draw(state) {
     if (!this.ok) return;
     const gl = this.gl, u = this.uniforms;
-    const t = performance.now() / 1000;
+    const nowP = performance.now();
+    this._t += Math.min(100, nowP - this._lastNow) * this.timeScale / 1000;
+    this._lastNow = nowP;
+    const t = this._t;
     gl.uniform2f(u.u_res, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.u_time, t);
     gl.uniform1f(u.u_breath, state.breath);
@@ -212,9 +228,9 @@ export class LakeScene {
     gl.uniform3fv(u.u_ridge, state.ridge);
     gl.uniform2f(u.u_sun, state.sun[0], state.sun[1]);
     gl.uniform1f(u.u_sunSize, state.sunSize);
-    gl.uniform1f(u.u_bloom, state.bloom);
     gl.uniform1f(u.u_churn, state.churn || 0);
-    const rip = new Float32Array(20);
+    const rip = this._rippleBuf;
+    rip.fill(0);
     this.ripples = this.ripples.filter((r) => t - r.t < 5);
     this.ripples.forEach((r, i) => {
       rip[i * 4] = r.x; rip[i * 4 + 1] = r.y; rip[i * 4 + 2] = r.t; rip[i * 4 + 3] = r.s;

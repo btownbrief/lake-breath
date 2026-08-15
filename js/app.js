@@ -14,6 +14,8 @@ import * as sound from './sound.js';
 import * as haptics from './haptics.js';
 import * as net from './net.js';
 import * as still from './stillness.js';
+import * as mic from './breathmic.js';
+import { Stones } from './stones.js';
 import { LakeScene, palette, celestial } from './scene-gl.js';
 import { Bloom } from './bloom.js';
 
@@ -31,6 +33,7 @@ let durationSec = 300;
 let session = null;
 let wakeLock = null;
 let quietTimer = 0;
+let lastSessionCalm = 0.5; // how flat the lake lies for the stone game
 
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* fine */ }
@@ -41,26 +44,33 @@ function saveStats() {
 const scene = new LakeScene($('lake'));
 if (!scene.ok) document.body.dataset.gl = 'off';
 const bloom = new Bloom($('petals'));
+bloom.resize(); // owner's job now — draw() no longer resizes per frame
 const HORIZON = 0.60;
+let micWanted = false;
+try { micWanted = localStorage.getItem('lakebreath-mic') === '1'; } catch { /* fine */ }
+const stones = new Stones(
+  (x, y, s) => scene.ripple(x, y, s),
+  (skips) => sound.plunk(skips),
+);
 
-const PHASE_ORDER = ['night', 'dawn', 'morning', 'day', 'golden', 'dusk'];
+// Ambient scene state is cached per minute — Intl date math and palette
+// blending are far too expensive to run per frame on a phone.
+let ambCache = { key: '', st: null };
 function sceneState(nowMs, breath, churn) {
-  const p = nyParts(nowMs);
-  const season = seasonFor(nowMs);
-  const phaseNow = skyPhase(nowMs);
-  const phaseSoon = skyPhase(nowMs + 30 * 60000);
-  const blend = phaseNow === phaseSoon ? 0 : (p.minute % 30) / 30;
-  const pal = palette(phaseNow, phaseSoon, blend, season);
-  const night = phaseNow === 'night' ? 1 : (phaseSoon === 'night' ? blend : (phaseNow === 'dusk' || phaseNow === 'dawn' ? 0.3 : 0));
-  const dayFrac = (p.hour * 60 + p.minute) / 1440;
-  const cel = celestial(dayFrac, night);
-  return {
-    breath, night, churn,
-    horizon: HORIZON,
-    ...pal, ...cel,
-    bloom: bloom.presence * (0.4 + breath * 0.6),
-    _phase: phaseNow, _season: season,
-  };
+  const key = Math.floor(nowMs / 60000);
+  if (ambCache.key !== key) {
+    const p = nyParts(nowMs);
+    const season = seasonFor(nowMs);
+    const phaseNow = skyPhase(nowMs);
+    const phaseSoon = skyPhase(nowMs + 30 * 60000);
+    const blend = phaseNow === phaseSoon ? 0 : (p.minute % 30) / 30;
+    const pal = palette(phaseNow, phaseSoon, blend, season);
+    const night = phaseNow === 'night' ? 1 : (phaseSoon === 'night' ? blend : (phaseNow === 'dusk' || phaseNow === 'dawn' ? 0.3 : 0));
+    const dayFrac = (p.hour * 60 + p.minute) / 1440;
+    const cel = celestial(dayFrac, night);
+    ambCache = { key, st: { night, horizon: HORIZON, ...pal, ...cel, _phase: phaseNow, _season: season } };
+  }
+  return { ...ambCache.st, breath, churn };
 }
 
 // ------------------------------------------------------------- helpers
@@ -149,29 +159,56 @@ function buildPracticeSheet() {
       porch: 'Eyes open, no counting. For when watching the breath isn’t it.',
     }[key];
     row.append(name, tag);
-    if (key === techKey) {
-      const durs = document.createElement('span');
+    row.addEventListener('click', () => {
+      techKey = key;
+      if (!tech.durations.includes(durationSec)) durationSec = tech.defaultDuration;
+      refreshPracticeLine(); buildPracticeSheet();
+      closeSheet('practice-sheet');
+    });
+    wrap.append(row);
+    // duration controls are siblings, never buttons-inside-a-button
+    if (key === techKey && tech.durations.length > 1) {
+      const durs = document.createElement('div');
       durs.className = 'durations';
+      durs.setAttribute('role', 'group');
+      durs.setAttribute('aria-label', 'How long');
       for (const secs of tech.durations) {
         const b = document.createElement('button');
         b.textContent = durLabel(secs);
         b.setAttribute('aria-pressed', String(secs === durationSec));
-        b.addEventListener('click', (e) => {
-          e.stopPropagation();
+        b.addEventListener('click', () => {
           durationSec = secs;
           refreshPracticeLine(); buildPracticeSheet();
         });
         durs.append(b);
       }
-      row.append(durs);
+      wrap.append(durs);
     }
-    row.addEventListener('click', () => {
-      techKey = key;
-      if (!tech.durations.includes(durationSec)) durationSec = tech.defaultDuration;
-      refreshPracticeLine(); buildPracticeSheet();
-      if (key !== techKey || true) closeSheet('practice-sheet');
+  }
+  // the lake can hear you — optional, private, breath sessions only
+  if (navigator.mediaDevices?.getUserMedia) {
+    const micRow = document.createElement('button');
+    micRow.className = 'note-row';
+    micRow.textContent = micWanted
+      ? 'The lake is listening for your breath — tap to stop'
+      : 'Let the lake hear your breath — your exhale becomes wind on the water';
+    micRow.addEventListener('click', async () => {
+      if (micWanted) {
+        micWanted = false; mic.stop();
+        toast('The lake isn’t listening.');
+      } else {
+        sound.unlock();
+        const ok = await mic.start(sound.audioCtx());
+        micWanted = ok;
+        if (ok && !session) mic.stop(); // only actually listen during sessions
+        toast(ok
+          ? 'During sessions, your exhale is wind on the water. Nothing is recorded or sent.'
+          : 'Your phone said no to the microphone.');
+      }
+      try { localStorage.setItem('lakebreath-mic', micWanted ? '1' : '0'); } catch { /* fine */ }
+      buildPracticeSheet();
     });
-    wrap.append(row);
+    wrap.append(micRow);
   }
 }
 
@@ -187,7 +224,14 @@ async function grabWakeLock() {
 }
 function dropWakeLock() { try { wakeLock?.release(); } catch { /* fine */ } wakeLock = null; }
 
+let starting = false;
 async function startSession({ town = false } = {}) {
+  if (session || starting) return; // double-tap / keyboard re-entry guard
+  starting = true;
+  try { await startSessionInner({ town }); } finally { starting = false; }
+}
+
+async function startSessionInner({ town = false } = {}) {
   const key = town ? 'lake' : techKey;
   const tech = TECHNIQUES[key];
   const now = Date.now();
@@ -202,6 +246,12 @@ async function startSession({ town = false } = {}) {
     if (!ok) { toast('Still Water needs motion access — your phone said no. Try another practice.'); return; }
   }
   sound.unlock();
+  const isBreathing = !tech.steps && tech.kind !== 'still';
+  if (isBreathing) {
+    sound.voiceStart();
+    bloom.guide = true;
+    if (micWanted) mic.start(sound.audioCtx()); // the lake listens, locally only
+  }
   grabWakeLock();
 
   session = {
@@ -282,8 +332,19 @@ function sessionFrame(nowP) {
       if (seg.k === 'in' || seg.k === 'in2' || seg.k === 'out') sound.cue(seg.k, seg.s);
       haptics.phaseTurn(seg.k);
     }
+    // the continuous voice rides the breath (throttled ~8/s)
+    if (nowP - (s.lastVoice || 0) > 120) { s.lastVoice = nowP; sound.voiceLevel(level); }
+    // the lake hears you: your real exhale is wind on the water
+    let wind = 0;
+    if (mic.active()) {
+      wind = mic.read();
+      if (wind > 0.5 && nowP - (s.lastGust || 0) > 500) {
+        s.lastGust = nowP;
+        scene.ripple(0.25 + Math.random() * 0.5, HORIZON + 0.06 + Math.random() * 0.25, 0.5 + wind * 0.5);
+      }
+    }
     updateRemaining(t, s);
-    return level;
+    return { breath: level, churn: wind * 0.45 };
   }
   // 8:02 lobby
   const secs = Math.ceil(-t / 1000);
@@ -292,15 +353,20 @@ function sessionFrame(nowP) {
   return 0.1;
 }
 
+let lastRemainText = '';
 function updateRemaining(t, s) {
   const remain = Math.max(0, s.seconds - Math.floor(Math.max(0, t) / 1000));
-  $('remaining').textContent = t >= 0 ? fmt(remain) : '';
+  const text = t >= 0 ? fmt(remain) : '';
+  if (text !== lastRemainText) { lastRemainText = text; $('remaining').textContent = text; }
 }
 
 function teardownSession() {
   if (!session) return;
   clearInterval(session.presenceTimer);
   still.stop();
+  mic.stop();          // the mic never outlives the session
+  sound.voiceStop();
+  bloom.guide = false;
   haptics.stop();
   dropWakeLock();
   net.leave();
@@ -318,6 +384,10 @@ function finishSession(completed) {
   const endClock = Math.min(Date.now(), s.t0 + s.seconds * 1000);
   const practicedSec = Math.min(s.seconds,
     Math.max(0, Math.round((endClock - Math.max(s.t0, s.startedAt)) / 1000)));
+
+  lastSessionCalm = !completed ? 0.35
+    : s.key === 'still' ? Math.min(1, s.stillSec / s.seconds + 0.35)
+    : 0.8;
 
   const before = mapleStage(stats.daysPracticed);
   stats = recordSession(stats, Date.now(), practicedSec);
@@ -355,7 +425,11 @@ function finishSession(completed) {
     plaque.textContent = PLAQUES[stats.plaque % PLAQUES.length];
     const more = document.createElement('a');
     more.href = '#'; more.textContent = 'why we tell you this';
-    more.addEventListener('click', (e) => { e.preventDefault(); $('bench').dataset.open = 'true'; });
+    more.addEventListener('click', (e) => {
+      e.preventDefault();
+      const bench = $('bench');
+      bench.dataset.open = 'true'; bench.inert = false;
+    });
     plaque.append(more);
     stats.plaque += 1;
     if (stats.plaque >= PLAQUES.length) stats.plaquesDone = true;
@@ -367,7 +441,10 @@ function finishSession(completed) {
   setTimeout(() => { document.body.dataset.view = 'end'; }, completed && practicedSec >= 30 ? 1500 : 150);
 
   if (stats.sessions === 1 && !stats.anchor && completed) {
-    setTimeout(() => openSheet('anchor-sheet'), 4200);
+    clearTimeout(finishSession._anchorT);
+    finishSession._anchorT = setTimeout(() => {
+      if (!session && document.body.dataset.view === 'end') openSheet('anchor-sheet');
+    }, 4200);
   }
 }
 
@@ -465,12 +542,21 @@ function buildBench() {
 
 // ---------------------------------------------------------- main loop
 
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
+scene.timeScale = REDUCED.matches ? 0.06 : 1;
+REDUCED.addEventListener?.('change', () => { scene.timeScale = REDUCED.matches ? 0.06 : 1; });
+scene.onContextChange = (ok) => { document.body.dataset.gl = ok ? 'on' : 'off'; };
+
 let breathSmooth = 0;
 let lastLoop = performance.now();
+let frameFlip = false;
 function loop(nowP) {
   const dt = Math.min(0.05, (nowP - lastLoop) / 1000);
   lastLoop = nowP;
-  scene.resize();
+  // idle screens render every other frame — slow water can't tell, the
+  // battery can
+  frameFlip = !frameFlip;
+  if (!session && frameFlip) { requestAnimationFrame(loop); return; }
 
   let target = 0, churn = 0, idle = true;
   if (session) {
@@ -491,6 +577,21 @@ function loop(nowP) {
   scene.draw(st);
   bloom.setColors(st.sunCol, st.skyLow);
   bloom.draw(breathSmooth, HORIZON, dt, idle);
+  // warm-night fireflies; a steady breath draws them toward the bloom
+  const flyNight = st.night > 0.55 && (st._season === 'summer' || st._season === 'spring' || st._season === 'foliage');
+  bloom.drawFireflies(flyNight, session && !session.tech.steps ? 0.9 : 0.15, dt);
+  // skipping stones ride the same canvas
+  if (stones.mode) {
+    stones.frame(bloom.ctx, bloom.canvas.width, bloom.canvas.height,
+      bloom.canvas.height * HORIZON, dt);
+    if (stones.done) {
+      stones.done = false;
+      if (stones.skips > (stats.skipsBest || 0)) { stats.skipsBest = stones.skips; saveStats(); }
+      $('stones-line').textContent = stones.skips === 0
+        ? 'Straight down. A flatter flick, a calmer lake.'
+        : `${stones.skips} ${stones.skips === 1 ? 'skip' : 'skips'}${stats.skipsBest > stones.skips ? ` — your best is ${stats.skipsBest}` : stones.skips >= 3 ? ' — a new best' : ''}.`;
+    }
+  }
   // the maple: dark leaf silhouettes by season, tinted by the sky at night
   const m = mapleStage(stats.daysPracticed);
   const leaf = {
@@ -517,8 +618,15 @@ function wire() {
   });
   $('practice-line').addEventListener('click', () => { buildPracticeSheet(); openSheet('practice-sheet'); });
   $('stop').addEventListener('click', () => finishSession(false));
-  $('end-done').addEventListener('click', () => { document.body.dataset.view = 'front'; refreshHome(); });
-  $('end-again').addEventListener('click', () => { document.body.dataset.view = 'front'; startSession(); });
+  $('end-done').addEventListener('click', () => {
+    clearTimeout(finishSession._anchorT);
+    bloom.show(true); // the hero returns home with you
+    document.body.dataset.view = 'front'; refreshHome();
+  });
+  $('end-again').addEventListener('click', () => {
+    clearTimeout(finishSession._anchorT);
+    document.body.dataset.view = 'front'; startSession();
+  });
   $('felt-worse').addEventListener('click', () => {
     techKey = 'porch'; durationSec = TECHNIQUES.porch.defaultDuration;
     refreshPracticeLine();
@@ -527,11 +635,14 @@ function wire() {
   });
   $('send-note').addEventListener('click', () => { buildNoteSheet(); openSheet('note-sheet'); });
   $('open-shore').addEventListener('click', () => { refreshShore(); openSheet('shore-sheet'); });
-  $('open-bench').addEventListener('click', () => { $('bench').dataset.open = 'true'; });
+  $('open-bench').addEventListener('click', () => {
+    const bench = $('bench');
+    bench.dataset.open = 'true'; bench.inert = false;
+  });
   for (const b of document.querySelectorAll('[data-close]')) {
     b.addEventListener('click', () => {
       const id = b.dataset.close;
-      if (id === 'bench') $('bench').dataset.open = 'false';
+      if (id === 'bench') { const bench = $('bench'); bench.dataset.open = 'false'; bench.inert = true; }
       else closeSheet(id);
     });
   }
@@ -571,15 +682,41 @@ function wire() {
 
   // touching the water makes ripples — your hand moves the world
   window.addEventListener('pointerdown', (e) => {
+    if (stones.mode) { stones.pointerDown(e.clientX * bloom.dpr, e.clientY * bloom.dpr); return; }
     const y = e.clientY / window.innerHeight;
     if (y > HORIZON) scene.ripple(e.clientX / window.innerWidth, y, 1);
     if (session) wakeQuietTimer();
     sound.resumeFromGesture();
   });
+  window.addEventListener('pointermove', (e) => {
+    if (stones.mode) stones.pointerMove(e.clientX * bloom.dpr, e.clientY * bloom.dpr);
+  });
+  window.addEventListener('pointerup', () => {
+    if (stones.mode) stones.pointerUp(bloom.canvas.width);
+  });
 
-  // iOS: real system tick per genuine tap on a native control, no box
+  // stones: play on the water you calmed
+  $('end-stone').addEventListener('click', () => {
+    clearTimeout(finishSession._anchorT);
+    stones.open(lastSessionCalm);
+    $('stones-line').textContent = 'Flick the stone across the water.';
+    document.body.dataset.view = 'stones';
+  });
+  $('stones-again').addEventListener('click', () => {
+    const calm = stones.calm;
+    stones.open(calm);
+    $('stones-line').textContent = 'Flick the stone across the water.';
+  });
+  $('stones-back').addEventListener('click', () => {
+    stones.close();
+    bloom.show(true);
+    document.body.dataset.view = 'front'; refreshHome();
+  });
+
+  // iOS: real system tick per genuine tap on a native control, no box.
+  // Only the mounted native label gets the overlay class — an empty div
+  // must never swallow taps meant for the Stop button.
   haptics.mountSwitch($('tick-zone'), () => { /* the tick is the feedback */ });
-  $('tick-zone').className = 'thumb-switch';
 
   // interruption contract: hidden = the session ends honestly
   document.addEventListener('visibilitychange', () => {

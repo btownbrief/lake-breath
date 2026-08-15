@@ -19,6 +19,45 @@ export class Bloom {
     this.motes = [];          // drifting light after release
     this.colorA = [255, 214, 150];
     this.colorB = [150, 200, 235];
+    this.dpr = 1;
+    this.guide = false;       // the inhale's destination ring (sessions)
+    this.fireflies = [];      // summer-night companions
+  }
+
+  // Fireflies on warm nights: they wander low over the water, and a
+  // steady breath draws them gently toward the bloom. steadiness 0..1.
+  drawFireflies(on, steadiness, dt) {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    if (on && this.fireflies.length === 0) {
+      for (let i = 0; i < 11; i++) {
+        this.fireflies.push({
+          x: Math.random(), y: (this.horizonY ?? 0.6) - 0.02 - Math.random() * 0.12,
+          vx: 0, vy: 0, ph: Math.random() * 7, rate: 0.6 + Math.random() * 1.1,
+        });
+      }
+    }
+    if (!on) { this.fireflies.length = 0; return; }
+    const t = performance.now() / 1000;
+    const cx = 0.5, cy = (this.horizonY ?? 0.6) - 0.05;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const f of this.fireflies) {
+      // wander + gentle pull toward the bloom when the breath is steady
+      f.vx += (Math.sin(t * 0.7 + f.ph * 3) * 0.004 + (cx - f.x) * 0.010 * steadiness) * dt;
+      f.vy += (Math.cos(t * 0.5 + f.ph * 2) * 0.003 + (cy - f.y) * 0.010 * steadiness) * dt;
+      f.vx *= 0.985; f.vy *= 0.985;
+      f.x += f.vx * dt * 8; f.y += f.vy * dt * 8;
+      const blink = Math.max(0, Math.sin(t * f.rate + f.ph));
+      const a = 0.10 + blink * blink * 0.55;
+      const r = (1.4 + blink * 1.6) * this.dpr;
+      const g = ctx.createRadialGradient(f.x * W, f.y * H, 0, f.x * W, f.y * H, r * 4);
+      g.addColorStop(0, `rgba(220, 255, 160, ${a})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(f.x * W, f.y * H, r * 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   resize() {
@@ -84,6 +123,9 @@ export class Bloom {
 
   release() {
     this.releaseAt = performance.now() / 1000;
+    // petals keep the radius the bloom had at the moment of release —
+    // the regrow cycle must not shrink what has already let go
+    this.releaseR = Math.max(8, this.lastR || 30);
     const cx = 0.5, cy = this.horizonY ?? 0.55;
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2 + this.rotation;
@@ -104,9 +146,9 @@ export class Bloom {
     }
   }
 
-  // breath: 0..1; horizonY: waterline in 0..1 from top; dt seconds
+  // breath: 0..1; horizonY: waterline in 0..1 from top; dt seconds.
+  // resize() is the owner's job (init + resize events), not per-frame.
   draw(breath, horizonY, dt, idle) {
-    this.resize();
     const ctx = this.ctx;
     const W = this.canvas.width, H = this.canvas.height;
     ctx.clearRect(0, 0, W, H);
@@ -130,9 +172,22 @@ export class Bloom {
     const cx = W * 0.5;
     const cy = H * (horizonY - 0.028 - b * 0.02); // rides the waterline, lifts on the inhale
     const R = Math.min(W, H) * (0.062 + b * 0.05) * this.presence * (releasing ? regrow : 1);
+    if (R > 1) this.lastR = R;
 
     if (R > 1) {
       ctx.save();
+      // The guide ring: the inhale's destination. The bloom expands toward
+      // it; watching the gap close tells you when to ease into the turn.
+      if (this.guide) {
+        const RMax = Math.min(W, H) * 0.112 * this.presence;
+        const ringR = RMax * (0.30 + 0.85) + RMax * 0.9;
+        const near = Math.max(0, 1 - (1 - b) * 3); // brightens as breath approaches full
+        ctx.strokeStyle = `rgba(255, 250, 238, ${0.10 + near * 0.22})`;
+        ctx.lineWidth = 1.2 * this.dpr;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, ringR, ringR * 0.62, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.globalCompositeOperation = 'screen';
       const petals = 6;
       const sep = (0.30 + b * 0.85) * R;     // petals translate apart
@@ -183,7 +238,7 @@ export class Bloom {
         m.y += m.vy * dt;
         m.vy += -0.001 * dt; // gentle lift
         const col = m.kind === 'petal' ? (m.i % 2 ? this.colorA : this.colorB) : [255, 244, 220];
-        const r = (m.kind === 'petal' ? R * 0.55 : Math.min(W, H) * 0.012) * (0.4 + fade * 0.6);
+        const r = (m.kind === 'petal' ? (this.releaseR || 30) * 0.55 : Math.min(W, H) * 0.012) * (0.4 + fade * 0.6);
         const g = ctx.createRadialGradient(m.x * W, m.y * H, 0, m.x * W, m.y * H, Math.max(1, r));
         g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${0.5 * fade})`);
         g.addColorStop(1, 'rgba(0,0,0,0)');
