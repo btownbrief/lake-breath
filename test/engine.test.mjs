@@ -78,9 +78,9 @@ test('nyWallToEpoch round-trips in both EST and EDT', () => {
 
 // --------------------------------------------------------------- the 8:02
 
-test('town window is 6:02–6:08 PM Burlington time', () => {
+test('town window is 8:02 to 8:08 PM Burlington time', () => {
   const t = townTimes(AUG_NOON);
-  assert.equal(nyParts(t.start).hour, 18);
+  assert.equal(nyParts(t.start).hour, 20);
   assert.equal(nyParts(t.start).minute, 2);
   assert.equal(t.end - t.start, TOWN.seconds * 1000);
 });
@@ -106,7 +106,7 @@ test('town start survives DST boundaries', () => {
   for (const [m, d] of [[10, 31], [11, 1], [11, 2], [3, 7], [3, 8], [3, 9]]) {
     const noon = nyWallToEpoch(2026, m, d, 12, 0);
     const t = townTimes(noon);
-    assert.equal(nyParts(t.start).hour, 18, `18h on 2026-${m}-${d}`);
+    assert.equal(nyParts(t.start).hour, 20, `20h on 2026-${m}-${d}`);
     assert.equal(nyParts(t.start).minute, 2);
   }
 });
@@ -180,7 +180,7 @@ test('evening idle points at TOMORROW, never a negative countdown', () => {
   assert.equal(ts.state, 'idle');
   assert.ok(ts.msToStart > 0, 'countdown must be positive');
   assert.equal(nyDateStr(ts.start), '2026-08-16');
-  assert.equal(nyParts(ts.start).hour, 18);
+  assert.equal(nyParts(ts.start).hour, 20);
   assert.equal(nyParts(ts.start).minute, 2);
 });
 

@@ -268,22 +268,6 @@ export function bowl() {
   }
 }
 
-// A stone meeting the water: skip = a bright plunk, sink = a deeper bloop.
-export function plunk(skips) {
-  if (!ctx || !enabled || ctx.state !== 'running') return;
-  const t = ctx.currentTime + 0.01;
-  const osc = ctx.createOscillator();
-  const g = ctx.createGain();
-  osc.type = 'sine';
-  const f = skips > 0 ? 620 + Math.min(skips, 6) * 60 : 190;
-  osc.frequency.setValueAtTime(f, t);
-  osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.12);
-  g.gain.setValueAtTime(skips > 0 ? 0.10 : 0.16, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + (skips > 0 ? 0.14 : 0.3));
-  osc.connect(g).connect(verb);
-  osc.start(t); osc.stop(t + 0.35);
-}
-
 // Far out on the water, sometimes, at night.
 export function maybeLoon(nightAmount) {
   if (!ctx || !enabled || ctx.state !== 'running' || nightAmount < 0.5) return;

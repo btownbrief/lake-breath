@@ -156,12 +156,12 @@ export function nyWallToEpoch(year, month, day, hour, minute) {
 
 // ------------------------------------------------------------- The 8:02
 
-// Burlington's town breath: every evening at 6:02 PM (the :02 is the 802's
-// wink), six minutes at six breaths a minute. All phones derive phase from
+// Burlington's town breath: every evening at 8:02 PM, the 802's own
+// minute, six minutes at six breaths a minute. All phones derive phase from
 // the same wall-clock start, so the town inhales together.
 export const TOWN = {
-  hour: 18, minute: 2, seconds: 360,
-  lobbyMinutes: 5, // doors open 5:57
+  hour: 20, minute: 2, seconds: 360,
+  lobbyMinutes: 5, // doors open 7:57
 };
 
 export function townTimes(ms) {

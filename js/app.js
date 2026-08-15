@@ -14,8 +14,6 @@ import * as sound from './sound.js';
 import * as haptics from './haptics.js';
 import * as net from './net.js';
 import * as still from './stillness.js';
-import * as mic from './breathmic.js';
-import { Stones } from './stones.js';
 import { LakeScene, palette, celestial } from './scene-gl.js';
 import { Bloom } from './bloom.js';
 
@@ -33,7 +31,6 @@ let durationSec = 300;
 let session = null;
 let wakeLock = null;
 let quietTimer = 0;
-let lastSessionCalm = 0.5; // how flat the lake lies for the stone game
 
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* fine */ }
@@ -46,12 +43,6 @@ if (!scene.ok) document.body.dataset.gl = 'off';
 const bloom = new Bloom($('petals'));
 bloom.resize(); // owner's job now — draw() no longer resizes per frame
 const HORIZON = 0.60;
-let micWanted = false;
-try { micWanted = localStorage.getItem('lakebreath-mic') === '1'; } catch { /* fine */ }
-const stones = new Stones(
-  (x, y, s) => scene.ripple(x, y, s),
-  (skips) => sound.plunk(skips),
-);
 
 // Ambient scene state is cached per minute — Intl date math and palette
 // blending are far too expensive to run per frame on a phone.
@@ -109,13 +100,13 @@ async function refreshHome() {
   const ts = townState(now);
   const ug = $('undergreeting');
   if (ts.state === 'lobby') {
-    ug.innerHTML = 'The 8:02 is gathering — <b>the town breathes at 6:02</b>';
+    ug.innerHTML = 'The 8:02 is gathering. <b>The town breathes at 8:02</b>';
     $('begin').textContent = 'Join the 8:02';
   } else if (ts.state === 'live') {
     ug.innerHTML = '<b>The 8:02 is happening now</b>';
     $('begin').textContent = 'Join the 8:02';
   } else if (ts.state === 'done') {
-    ug.textContent = 'Tonight’s 8:02 just ended — same time tomorrow.';
+    ug.textContent = 'Tonight’s 8:02 just ended. Same time tomorrow.';
     $('begin').textContent = 'Breathe';
   } else {
     $('begin').textContent = 'Breathe';
@@ -125,9 +116,9 @@ async function refreshHome() {
       const [num, ...rest] = line.split(' ');
       ug.innerHTML = `<b>${num}</b> ${rest.join(' ')} right now`;
     } else if (stats.anchor) {
-      ug.innerHTML = `<i>${stats.anchor}, I breathe.</i> The 8:02 is at 6:02 tonight.`;
+      ug.innerHTML = `<i>${stats.anchor}, I breathe.</i> Breathe anytime; at 8:02 the town breathes together.`;
     } else {
-      ug.textContent = 'The 8:02 — every evening, the whole town on one inhale.';
+      ug.textContent = 'Breathe anytime. At 8:02 each evening, the whole town is on one inhale.';
     }
   }
 }
@@ -152,10 +143,10 @@ function buildPracticeSheet() {
     const tag = document.createElement('span');
     tag.className = 'tag';
     tag.textContent = {
-      lake: 'The daily practice — in four, out six. The water breathes with you.',
+      lake: 'The daily practice. In four, out six; the water breathes with you.',
       sigh: 'Two sips in, one long sigh out. Ninety seconds to reset.',
       box: 'Four even sides. For people who already love it.',
-      still: 'Hold the phone like a bowl of water. Motion churns the lake; stillness lets it turn to glass.',
+      still: 'Hold the phone flat and steady. Motion churns the lake; stillness turns it to glass.',
       porch: 'Eyes open, no counting. For when watching the breath isn’t it.',
     }[key];
     row.append(name, tag);
@@ -184,31 +175,6 @@ function buildPracticeSheet() {
       }
       wrap.append(durs);
     }
-  }
-  // the lake can hear you — optional, private, breath sessions only
-  if (navigator.mediaDevices?.getUserMedia) {
-    const micRow = document.createElement('button');
-    micRow.className = 'note-row';
-    micRow.textContent = micWanted
-      ? 'The lake is listening for your breath — tap to stop'
-      : 'Let the lake hear your breath — your exhale becomes wind on the water';
-    micRow.addEventListener('click', async () => {
-      if (micWanted) {
-        micWanted = false; mic.stop();
-        toast('The lake isn’t listening.');
-      } else {
-        sound.unlock();
-        const ok = await mic.start(sound.audioCtx());
-        micWanted = ok;
-        if (ok && !session) mic.stop(); // only actually listen during sessions
-        toast(ok
-          ? 'During sessions, your exhale is wind on the water. Nothing is recorded or sent.'
-          : 'Your phone said no to the microphone.');
-      }
-      try { localStorage.setItem('lakebreath-mic', micWanted ? '1' : '0'); } catch { /* fine */ }
-      buildPracticeSheet();
-    });
-    wrap.append(micRow);
   }
 }
 
@@ -243,14 +209,13 @@ async function startSessionInner({ town = false } = {}) {
   }
   if (tech.kind === 'still') {
     const ok = await still.start();
-    if (!ok) { toast('Still Water needs motion access — your phone said no. Try another practice.'); return; }
+    if (!ok) { toast('Still Water needs motion access, and your phone said no. Try another practice.'); return; }
   }
   sound.unlock();
   const isBreathing = !tech.steps && tech.kind !== 'still';
   if (isBreathing) {
     sound.voiceStart();
     bloom.guide = true;
-    if (micWanted) mic.start(sound.audioCtx()); // the lake listens, locally only
   }
   grabWakeLock();
 
@@ -268,7 +233,7 @@ async function startSessionInner({ town = false } = {}) {
   bloom.show(tech.kind === 'still' || tech.steps ? false : true);
   $('phase-word').textContent = '';
   $('phase-sub').textContent =
-    town ? 'The 8:02 — the whole town, one clock'
+    town ? 'The 8:02. The whole town, one clock'
       : tech.steps ? PORCH_INTRO
       : tech.kind === 'still' ? 'Set the water down gently. Let it settle.'
       : '';
@@ -314,7 +279,7 @@ function sessionFrame(nowP) {
     }
     s.wasGlassy = glassy;
     $('still-meter').textContent = glassy
-      ? `glass — ${fmt(s.stillSec)}`
+      ? `glass ${fmt(s.stillSec)}`
       : 'the water is settling…';
     if (still.spiked()) scene.ripple(0.3 + Math.random() * 0.4, HORIZON + 0.1 + Math.random() * 0.2, 0.8);
     updateRemaining(t, s);
@@ -325,7 +290,7 @@ function sessionFrame(nowP) {
     const level = breathLevel(s.tech, t);
     const p = phaseAt(s.tech, t);
     if (p.i !== s.lastSegI) {
-      if (s.lastSegI === -1 && s.town) $('phase-sub').textContent = 'The 8:02 — the whole town, one clock';
+      if (s.lastSegI === -1 && s.town) $('phase-sub').textContent = 'The 8:02. The whole town, one clock';
       s.lastSegI = p.i;
       $('phase-word').textContent = PHASE_WORDS[p.k] || '';
       const seg = s.tech.segments[p.i];
@@ -334,22 +299,13 @@ function sessionFrame(nowP) {
     }
     // the continuous voice rides the breath (throttled ~8/s)
     if (nowP - (s.lastVoice || 0) > 120) { s.lastVoice = nowP; sound.voiceLevel(level); }
-    // the lake hears you: your real exhale is wind on the water
-    let wind = 0;
-    if (mic.active()) {
-      wind = mic.read();
-      if (wind > 0.5 && nowP - (s.lastGust || 0) > 500) {
-        s.lastGust = nowP;
-        scene.ripple(0.25 + Math.random() * 0.5, HORIZON + 0.06 + Math.random() * 0.25, 0.5 + wind * 0.5);
-      }
-    }
     updateRemaining(t, s);
-    return { breath: level, churn: wind * 0.45 };
+    return level;
   }
   // 8:02 lobby
   const secs = Math.ceil(-t / 1000);
   $('phase-word').textContent = 'starting soon';
-  $('phase-sub').textContent = `the town inhales together at 6:02 — ${fmt(secs)}`;
+  $('phase-sub').textContent = `the town inhales together at 8:02, in ${fmt(secs)}`;
   return 0.1;
 }
 
@@ -364,7 +320,6 @@ function teardownSession() {
   if (!session) return;
   clearInterval(session.presenceTimer);
   still.stop();
-  mic.stop();          // the mic never outlives the session
   sound.voiceStop();
   bloom.guide = false;
   haptics.stop();
@@ -384,10 +339,6 @@ function finishSession(completed) {
   const endClock = Math.min(Date.now(), s.t0 + s.seconds * 1000);
   const practicedSec = Math.min(s.seconds,
     Math.max(0, Math.round((endClock - Math.max(s.t0, s.startedAt)) / 1000)));
-
-  lastSessionCalm = !completed ? 0.35
-    : s.key === 'still' ? Math.min(1, s.stillSec / s.seconds + 0.35)
-    : 0.8;
 
   const before = mapleStage(stats.daysPracticed);
   stats = recordSession(stats, Date.now(), practicedSec);
@@ -411,8 +362,8 @@ function finishSession(completed) {
   $('end-sub').textContent =
     practicedSec < 30 ? 'Even sitting down counts for something. The lake will be here.'
     : s.town ? 'You breathed with the whole town tonight.'
-    : s.key === 'still' ? `The water held glass for ${fmt(s.stillSec)}${
-        s.stirs ? ` — it stirred ${s.stirs === 1 ? 'once' : s.stirs === 2 ? 'twice' : `${s.stirs} times`}` : ' — it never stirred'}.`
+    : s.key === 'still' ? `The water held glass for ${fmt(s.stillSec)}. It ${
+        s.stirs ? `stirred ${s.stirs === 1 ? 'once' : s.stirs === 2 ? 'twice' : `${s.stirs} times`}` : 'never stirred'}.`
     : '';
   $('end-grow').textContent =
     after.stage > before.stage ? 'Your maple grew.'
@@ -495,7 +446,7 @@ function buildNoteSheet() {
       const ok = await net.sendNote(p.id);
       $('note-sent').textContent = ok
         ? 'Sent. It’s on the town wall for the next two days.'
-        : 'Couldn’t send right now — one note every couple hours, or the lake is offline.';
+        : 'Couldn’t send right now. One note every couple hours, or the lake is offline.';
       if (ok) refreshWall();
     });
     wrap.append(b);
@@ -512,11 +463,11 @@ async function refreshShore() {
   $('stat-glass').textContent = stats.glassBest ? fmt(stats.glassBest) : '–';
   const m = mapleStage(stats.daysPracticed);
   $('maple-line').textContent = m.grown
-    ? 'Your maple reached full canopy — day 66 is when habits take root.'
-    : `Your maple is ${['a bare shore', 'a sprout', 'a seedling', 'a sapling', 'a young tree', 'a young tree', 'growing', 'growing', 'filling in', 'filling in', 'almost there'][m.stage]}. It only ever grows — full canopy lands around day 66.`;
+    ? 'Your maple reached full canopy. Day 66 is when habits take root.'
+    : `Your maple is ${['a bare shore', 'a sprout', 'a seedling', 'a sapling', 'a young tree', 'a young tree', 'growing', 'growing', 'filling in', 'filling in', 'almost there'][m.stage]}. It only ever grows; full canopy lands around day 66.`;
   $('anchor-line').innerHTML = stats.anchor
     ? `<i>${stats.anchor}, I breathe.</i>`
-    : 'No anchor yet — it’s offered after your first sit.';
+    : 'No anchor yet. It’s offered after your first sit.';
   const mins = await net.townMinutes();
   $('town-line').innerHTML = mins != null && mins > 0
     ? `Burlington has taken <b>${mins.toLocaleString()}</b> quiet minutes together this month.`
@@ -580,18 +531,6 @@ function loop(nowP) {
   // warm-night fireflies; a steady breath draws them toward the bloom
   const flyNight = st.night > 0.55 && (st._season === 'summer' || st._season === 'spring' || st._season === 'foliage');
   bloom.drawFireflies(flyNight, session && !session.tech.steps ? 0.9 : 0.15, dt);
-  // skipping stones ride the same canvas
-  if (stones.mode) {
-    stones.frame(bloom.ctx, bloom.canvas.width, bloom.canvas.height,
-      bloom.canvas.height * HORIZON, dt);
-    if (stones.done) {
-      stones.done = false;
-      if (stones.skips > (stats.skipsBest || 0)) { stats.skipsBest = stones.skips; saveStats(); }
-      $('stones-line').textContent = stones.skips === 0
-        ? 'Straight down. A flatter flick, a calmer lake.'
-        : `${stones.skips} ${stones.skips === 1 ? 'skip' : 'skips'}${stats.skipsBest > stones.skips ? ` — your best is ${stats.skipsBest}` : stones.skips >= 3 ? ' — a new best' : ''}.`;
-    }
-  }
   // the maple: dark leaf silhouettes by season, tinted by the sky at night
   const m = mapleStage(stats.daysPracticed);
   const leaf = {
@@ -631,7 +570,7 @@ function wire() {
     techKey = 'porch'; durationSec = TECHNIQUES.porch.defaultDuration;
     refreshPracticeLine();
     document.body.dataset.view = 'front'; refreshHome();
-    toast('Fair. Front Porch is set — eyes open, no counting. Or just stop for today; that’s fine too.');
+    toast('Fair. Front Porch is set: eyes open, no counting. Or just stop for today; that’s fine too.');
   });
   $('send-note').addEventListener('click', () => { buildNoteSheet(); openSheet('note-sheet'); });
   $('open-shore').addEventListener('click', () => { refreshShore(); openSheet('shore-sheet'); });
@@ -680,37 +619,12 @@ function wire() {
   });
   document.querySelector('.toplinks').prepend(sBtn);
 
-  // touching the water makes ripples — your hand moves the world
+  // touching the water makes ripples: your hand moves the world
   window.addEventListener('pointerdown', (e) => {
-    if (stones.mode) { stones.pointerDown(e.clientX * bloom.dpr, e.clientY * bloom.dpr); return; }
     const y = e.clientY / window.innerHeight;
     if (y > HORIZON) scene.ripple(e.clientX / window.innerWidth, y, 1);
     if (session) wakeQuietTimer();
     sound.resumeFromGesture();
-  });
-  window.addEventListener('pointermove', (e) => {
-    if (stones.mode) stones.pointerMove(e.clientX * bloom.dpr, e.clientY * bloom.dpr);
-  });
-  window.addEventListener('pointerup', () => {
-    if (stones.mode) stones.pointerUp(bloom.canvas.width);
-  });
-
-  // stones: play on the water you calmed
-  $('end-stone').addEventListener('click', () => {
-    clearTimeout(finishSession._anchorT);
-    stones.open(lastSessionCalm);
-    $('stones-line').textContent = 'Flick the stone across the water.';
-    document.body.dataset.view = 'stones';
-  });
-  $('stones-again').addEventListener('click', () => {
-    const calm = stones.calm;
-    stones.open(calm);
-    $('stones-line').textContent = 'Flick the stone across the water.';
-  });
-  $('stones-back').addEventListener('click', () => {
-    stones.close();
-    bloom.show(true);
-    document.body.dataset.view = 'front'; refreshHome();
   });
 
   // iOS: real system tick per genuine tap on a native control, no box.

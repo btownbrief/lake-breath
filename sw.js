@@ -3,7 +3,7 @@
 // own path or cache prefix (this origin is shared with the whole arcade).
 // Bump VERSION on every deploy; no skipWaiting so an update can never
 // swap files out from under a running session.
-const VERSION = 'lake-breath-v4';
+const VERSION = 'lake-breath-v5';
 const SHELL = [
   './',
   'index.html',
@@ -11,7 +11,6 @@ const SHELL = [
   'js/app.js', 'js/engine.js', 'js/content.js', 'js/sound.js',
   'js/haptics.js', 'js/net.js', 'js/leaderboard.js',
   'js/scene-gl.js', 'js/bloom.js', 'js/stillness.js',
-  'js/breathmic.js', 'js/stones.js',
   'assets/fonts/fraunces-normal-latin.woff2',
   'assets/fonts/fraunces-italic-latin.woff2',
   'assets/fonts/inter-normal-latin.woff2',
