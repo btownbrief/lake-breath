@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-sky="day" data-season="summer">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2E5F92">
+  <title>Lake Breath — Burlington breathes together</title>
+  <meta name="description" content="A quiet breathing practice on a Lake Champlain horizon. Water rises as you inhale. Every evening at 6:02, the whole town breathes together.">
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lake Breath">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BTown Brief">
+  <meta property="og:title" content="Lake Breath — Burlington breathes together">
+  <meta property="og:description" content="Six breaths a minute on a Lake Champlain horizon. The 8:02: every evening, the whole town on the same inhale.">
+  <meta name="twitter:card" content="summary">
+
+  <!-- fonts are self-hosted (assets/fonts) — no Google Fonts request -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-view="front" data-btown-about="off">
+
+  <!-- The lake. Always behind everything; the water plane breathes. -->
+  <div class="scene" aria-hidden="true">
+    <div class="sky"></div>
+    <div class="stars"></div>
+    <div class="celestial"></div>
+    <div class="mtn"></div>
+    <div class="water"><div class="shimmer"></div></div>
+    <div class="shore"></div>
+    <svg class="maple" id="maple" viewBox="0 0 100 120" aria-hidden="true"></svg>
+  </div>
+
+  <main>
+    <!-- ------------------------------------------------ front door -->
+    <section class="view" id="view-front" aria-label="Lake Breath home">
+      <div class="topbar">
+        <h1 class="wordmark">Lake Breath</h1>
+        <div class="links">
+          <button class="btn btn-ghost" id="go-bench">field notes</button>
+          <button class="btn btn-ghost" id="go-shore">your shore</button>
+        </div>
+      </div>
+
+      <div class="front-center">
+        <p class="presence-line" id="presence-front" aria-live="polite"></p>
+
+        <button class="town-chip" id="town-chip" data-live="false">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="town-chip-text">The 8:02 — tonight at 6:02</span>
+        </button>
+
+        <div class="chips" id="technique-chips" role="group" aria-label="Choose a practice">
+          <button class="chip" data-tech="lake" aria-pressed="true">Lake Breath</button>
+          <button class="chip" data-tech="sigh" aria-pressed="false">Quick Sigh</button>
+          <button class="chip" data-tech="box" aria-pressed="false">Box</button>
+          <button class="chip" data-tech="porch" aria-pressed="false">Front Porch</button>
+        </div>
+        <p class="chip-tag" id="technique-tag">the daily practice — in 4, out 6</p>
+
+        <div class="chips" id="duration-chips" role="group" aria-label="How long">
+          <button class="chip" data-mins="3" aria-pressed="false">3 min</button>
+          <button class="chip" data-mins="5" aria-pressed="true">5 min</button>
+          <button class="chip" data-mins="10" aria-pressed="false">10 min</button>
+        </div>
+
+        <button class="begin" id="begin">Breathe</button>
+        <p class="anchor-line" id="anchor-front" hidden></p>
+      </div>
+
+      <p class="safety" id="safety-line"></p>
+    </section>
+
+    <!-- --------------------------------------------------- session -->
+    <section class="view" id="view-session" aria-label="Breathing session">
+      <div>
+        <p class="phase-word" id="phase-word" aria-live="off">breathe in</p>
+        <p class="phase-sub" id="phase-sub"></p>
+        <p class="session-count" id="session-count"></p>
+        <p class="town-live-count" id="presence-session" aria-live="polite"></p>
+      </div>
+      <div class="thumb-zone" id="thumb-zone" data-held="false">
+        <span id="thumb-hint">rest a thumb here — press as the water rises</span>
+      </div>
+      <button class="btn btn-ghost session-exit" id="end-early">stop</button>
+    </section>
+
+    <!-- ------------------------------------------------------- end -->
+    <section class="view" id="view-end" aria-label="Session complete">
+      <p class="end-big" id="end-big">That’s 5 quiet minutes.</p>
+      <p class="end-sub" id="end-sub"></p>
+      <p class="end-grow" id="end-grow"></p>
+
+      <div class="card" id="plaque-card" hidden>
+        <p class="plaque" id="plaque-text"></p>
+        <p class="plaque-link"><button class="btn btn-ghost" id="plaque-more">why we tell you this →</button></p>
+      </div>
+
+      <div class="card wall">
+        <h3>Notes from your neighbors</h3>
+        <ul id="wall-list"><li class="empty">The wall is quiet right now.</li></ul>
+        <div class="note-presets" id="note-presets" role="group" aria-label="Send a kind note to the town"></div>
+        <p class="note-sent" id="note-sent" aria-live="polite"></p>
+      </div>
+
+      <div class="end-actions">
+        <button class="btn" id="end-done">done</button>
+        <button class="btn btn-ghost" id="end-again">again</button>
+      </div>
+      <p class="felt-worse"><button class="btn-ghost btn" id="felt-worse">that felt bad, actually</button></p>
+    </section>
+
+    <!-- ----------------------------------------------------- shore -->
+    <section class="view" id="view-shore" aria-label="Your shore">
+      <div class="shore-head">
+        <h2>Your shore</h2>
+        <button class="btn btn-ghost" id="shore-back">back</button>
+      </div>
+      <div class="card">
+        <h3>The last two weeks</h3>
+        <div class="sky-strip" id="sky-strip" role="img" aria-label="Practice days over the last two weeks"></div>
+      </div>
+      <div class="card">
+        <div class="stats-row">
+          <div class="stat"><b id="stat-days">0</b><span>days</span></div>
+          <div class="stat"><b id="stat-minutes">0</b><span>minutes here</span></div>
+          <div class="stat"><b id="stat-maple">sapling</b><span>your maple</span></div>
+        </div>
+        <p class="end-grow" id="maple-next"></p>
+      </div>
+      <div class="card">
+        <p class="anchor-line" id="anchor-shore">No anchor set yet.</p>
+        <p class="town-total" id="town-total"></p>
+      </div>
+      <p class="danger"><button class="btn btn-ghost" id="reset-history">reset my history on this device</button></p>
+    </section>
+
+    <!-- ----------------------------------------------------- bench -->
+    <section class="view" id="view-bench" aria-label="Field notes">
+      <div class="shore-head">
+        <h2>Field notes</h2>
+        <button class="btn btn-ghost" id="bench-back">back</button>
+      </div>
+      <div class="card note-block" id="builder-note" hidden>
+        <h3 id="builder-note-title">From Stephen</h3>
+        <p id="builder-note-body"></p>
+      </div>
+      <div id="bench-notes"></div>
+    </section>
+  </main>
+
+  <!-- anchor prompt sheet (after first completed session) -->
+  <div class="sheet" id="anchor-sheet" data-open="false" role="dialog" aria-modal="false" aria-label="Set a time anchor">
+    <div class="card" style="background:transparent;border:0;padding:0">
+      <h3>Where might this fit?</h3>
+      <p class="end-sub" style="text-align:left;margin:0 0 12px">People who tie practice to a routine keep it far longer than people who rely on willpower.</p>
+      <div class="chips" id="anchor-chips" style="justify-content:flex-start">
+        <button class="chip" data-anchor="After coffee">after coffee</button>
+        <button class="chip" data-anchor="After brushing my teeth">after brushing teeth</button>
+        <button class="chip" data-anchor="On my lunch break">lunch break</button>
+        <button class="chip" data-anchor="Before bed">before bed</button>
+        <button class="chip" data-anchor="">I’ll wing it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script type="module" src="js/app.js"></script>
+  <script src="https://play.btownbrief.com/nav.js" defer></script>
+</body>
+</html>

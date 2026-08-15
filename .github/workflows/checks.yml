@@ -1,0 +1,23 @@
+# Engine tests on every push/PR under two host timezones — everything
+# Burlington-facing (the 8:02, month buckets, the maple's days) must not
+# care what clock the machine wears.
+name: checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Engine tests (Burlington time under a UTC clock)
+        run: TZ=UTC node --test test/engine.test.mjs
+      - name: Engine tests again under a west-coast clock
+        run: TZ=America/Los_Angeles node --test test/engine.test.mjs
+      - name: Syntax-check every script
+        run: for f in js/*.js sw.js scripts/*.mjs; do node --check "$f"; done

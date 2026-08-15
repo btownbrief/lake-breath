@@ -1,0 +1,13 @@
+{
+  "name": "Lake Breath",
+  "short_name": "Lake Breath",
+  "description": "Burlington breathes together. Six breaths a minute on a Lake Champlain horizon.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0A1224",
+  "theme_color": "#2E5F92",
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
