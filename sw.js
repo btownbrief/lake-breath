@@ -1,17 +1,20 @@
 // Lake Breath service worker — cache-first for the app shell so the lake
-// opens instantly and works offline. Network-only for Supabase calls.
-// Bump VERSION on every deploy; the new worker waits (no skipWaiting) so
-// an update can never swap files out from under a running session.
-const VERSION = 'lake-breath-v2';
+// opens instantly and works offline. Never touches anything outside its
+// own path or cache prefix (this origin is shared with the whole arcade).
+// Bump VERSION on every deploy; no skipWaiting so an update can never
+// swap files out from under a running session.
+const VERSION = 'lake-breath-v3';
 const SHELL = [
   './',
   'index.html',
   'css/style.css',
-  'js/app.js', 'js/engine.js', 'js/content.js', 'js/audio.js',
+  'js/app.js', 'js/engine.js', 'js/content.js', 'js/sound.js',
   'js/haptics.js', 'js/net.js', 'js/leaderboard.js',
-  'assets/fonts/instrument-serif-latin.woff2',
-  'assets/fonts/instrument-serif-italic-latin.woff2',
-  'assets/fonts/dm-sans-latin.woff2',
+  'js/scene-gl.js', 'js/bloom.js', 'js/stillness.js',
+  'assets/fonts/fraunces-normal-latin.woff2',
+  'assets/fonts/fraunces-italic-latin.woff2',
+  'assets/fonts/inter-normal-latin.woff2',
+  'assets/grain.png',
   'manifest.webmanifest',
 ];
 
@@ -20,8 +23,6 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
-  // caches.keys() is ORIGIN-wide and this app shares play.btownbrief.com
-  // with the whole arcade — only ever touch our own prefixed caches.
   e.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys
@@ -34,9 +35,7 @@ const SCOPE_PATH = new URL(self.registration.scope).pathname;
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return; // supabase etc: network
-  // Same-origin but outside our scope path (nav.js, ticker.js, other
-  // arcade apps' assets): never intercept — fleet fixes must ship live.
+  if (url.origin !== location.origin) return;
   if (!url.pathname.startsWith(SCOPE_PATH)) return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then((hit) =>

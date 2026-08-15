@@ -37,6 +37,16 @@ export const TECHNIQUES = {
     durations: [180, 300, 600],
     defaultDuration: 300,
   },
+  still: {
+    name: 'Still Water',
+    tag: 'hold the lake steady',
+    // Not a pacer: the phone's accelerometer drives the scene — motion
+    // churns the water, stillness lets it settle to glass. The practice
+    // is simply to be still. Needs DeviceMotion; hidden where unsupported.
+    kind: 'still',
+    durations: [180, 300],
+    defaultDuration: 180,
+  },
   porch: {
     name: 'Front Porch',
     tag: 'eyes open, no breath counting',

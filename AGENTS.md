@@ -39,6 +39,27 @@ to the same wall clock.
   presence, the wall, and town totals hide themselves (`not_ready`
   philosophy — never an error state).
 
+## v2 architecture notes
+
+- The scene is `js/scene-gl.js`: raw WebGL2, one fullscreen quad, one
+  fragment shader — no three.js, no build step. Palette math happens in
+  JS per frame (time-of-day phases blended, season tints). If the shader
+  changes, screenshot dawn/day/golden/night before shipping (Playwright
+  + fake clock; see the session scratchpad's verify-v2 pattern).
+- `js/bloom.js` is the hero object (petals + release moment + the maple
+  silhouette) on a 2D canvas above the WebGL canvas. Apple-flower
+  grammar: petals translate apart while the group scales and rotates —
+  never a single symmetric tween.
+- `js/sound.js` is fully generative (no audio assets). Sound is ON by
+  default; the toggle lives in the top links.
+- `js/stillness.js` = Still Water (accelerometer). iOS needs the
+  permission call from a user gesture; feature-hidden elsewhere.
+- The shared arcade `nav.js` is deliberately NOT included (sanctuary
+  choice, documented in README). Don't re-add it without Stephen.
+- Fraunces is used with `font-variation-settings: 'SOFT' 100, 'WONK' 0`
+  everywhere — the wonk axis stays off; this is a calm serif, not a
+  quirky one.
+
 ## Layout
 
 - `js/engine.js` — pure logic (breath math, NY time, the 8:02, maple, stats)
