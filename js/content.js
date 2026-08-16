@@ -1,4 +1,4 @@
-// Lake Breath — words. Kind-note presets, science plaques, field notes,
+// Lake Breath: words. Kind-note presets, science plaques, field notes,
 // the mantra, the first-run guide. All content lives here so tone edits
 // never touch logic. House style: no em dashes in any of the copy below.
 // Periods, commas and colons do the work.

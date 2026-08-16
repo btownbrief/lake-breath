@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TECHNIQUES, cycleMs, phaseAt, breathLevel,
+  TECHNIQUES, PRACTICE_MINUTES, minutesFor, cycleMs, phaseAt, breathLevel,
   nyParts, nyDateStr, nyMonthKey, nyWallToEpoch, nyDayPlus, dailyIndex,
   TOWN, townTimes, townState, townPhaseMs,
   seasonFor, skyPhase,
@@ -67,7 +67,7 @@ test('the doing practices are not pacers', () => {
   assert.ok(TECHNIQUES.paddle.durations.includes(600));
 });
 
-test('Just Sit is a plain timer with a minute range, not a pacer', () => {
+test('Just Sit is a plain timer, not a pacer', () => {
   const t = TECHNIQUES.timer;
   assert.equal(t.name, 'Just Sit');
   assert.equal(t.kind, 'timer');
@@ -83,6 +83,19 @@ test('Just Sit is a plain timer with a minute range, not a pacer', () => {
   // then the plain timer, then the rest.
   assert.deepEqual(Object.keys(TECHNIQUES),
     ['lake', 'paddle', 'timer', 'sigh', 'box', 'still', 'porch']);
+});
+
+test('every practice duration resolves through the shared 1 to 20 minute wheel', () => {
+  assert.deepEqual(PRACTICE_MINUTES, { min: 1, max: 20 });
+  for (const tech of Object.values(TECHNIQUES)) {
+    assert.ok(minutesFor(tech) >= 1 && minutesFor(tech) <= 20);
+    assert.equal(minutesFor(tech, '1'), 1);
+    assert.equal(minutesFor(tech, '20'), 20);
+    assert.equal(minutesFor(tech, '-8'), 1);
+    assert.equal(minutesFor(tech, '99'), 20);
+  }
+  assert.equal(minutesFor(TECHNIQUES.sigh), 2);
+  assert.equal(minutesFor(TECHNIQUES.timer, '13'), 13);
 });
 
 test('a tap is on rhythm within 35% of the cadence, either side', () => {
@@ -163,13 +176,13 @@ function steadyRun(state, seconds, tick) {
   return s;
 }
 
-test('an upright phone earns no centered time and no drifts', () => {
-  // Standing on a table the tilt fades to zero, so the bubble reads dead
-  // centre. Without the flatness gate that is a perfect session.
+test('an invalid sensor pose earns no centered time and no drifts', () => {
+  // A missing or uncalibrated pose can read dead centre. Without the pose
+  // gate that would look like a perfect session.
   const s = steadyRun(freshSteady(), 60, { inRing: true, flat: 0.05, churn: 0.02 });
-  assert.equal(s.centeredSec, 0, 'flat-enough is part of being home');
-  assert.equal(s.drifts, 0, 'and a tipped-up phone is not scolded either');
-  // held properly flat and calm, the same minute counts
+  assert.equal(s.centeredSec, 0, 'a valid pose is part of being home');
+  assert.equal(s.drifts, 0, 'an invalid pose is not scolded either');
+  // A calibrated flat or upright pose feeds the same valid signal.
   const home = steadyRun(freshSteady(), 60, { inRing: true, flat: 0.9, churn: 0.02 });
   assert.ok(home.centeredSec >= 59.9 && home.centeredSec <= 60.1);
 });

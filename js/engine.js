@@ -63,9 +63,9 @@ export const TECHNIQUES = {
   },
   still: {
     name: 'Steady',
-    tag: 'phone flat, bubble home',
-    // Not a pacer: a spirit level. Hold the phone flat like a full bowl
-    // and a luminous bubble drifts with every tilt; the practice is
+    tag: 'phone still, light home',
+    // Not a pacer: a spirit level. Hold the phone flat or upright and a
+    // luminous bubble drifts with every tilt; the practice is
     // keeping it inside the ring while your thoughts go wherever they
     // want. Needs DeviceMotion; hidden where unsupported.
     kind: 'still',
@@ -89,6 +89,17 @@ export const TECHNIQUES = {
     defaultDuration: 240,
   },
 };
+
+// Every practice uses the same minute wheel. Technique defaults still set
+// the first value, but no practice owns or locks its duration.
+export const PRACTICE_MINUTES = { min: 1, max: 20 };
+
+export function minutesFor(tech, saved) {
+  const fallback = Math.round((tech?.defaultDuration || 60) / 60);
+  const parsed = Number.parseInt(saved, 10);
+  const mins = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.min(PRACTICE_MINUTES.max, Math.max(PRACTICE_MINUTES.min, mins));
+}
 
 export function cycleMs(tech) {
   return tech.segments.reduce((a, s) => a + s.s, 0) * 1000;
@@ -204,14 +215,13 @@ export function paddleStroke(state, gapMs) {
 // Steady's accounting, as a pure state machine so it can be tested without
 // a phone. Per tick it takes what the sensor says right now:
 //   inRing — is the bubble inside the ring
-//   flat   — 0..1, how flat the phone is being held
+//   flat   — 0..1, confidence in the auto-picked flat or upright pose
 //   churn  — 0..1 smoothed motion
 //   dt     — seconds since the last tick
 //
-// Centered ("home") time needs all three: bubble home, phone actually flat,
-// and the lake calm. An upright phone reads as tilt-zero (the bubble fades
-// to the middle as flatness goes), so without the flatness gate a phone
-// standing on a table would earn a perfect session.
+// Centered ("home") time needs all three: bubble home, a valid calibrated
+// pose, and the lake calm. Without the pose gate a device with no useful
+// orientation reading would earn a perfect session at zero.
 //
 // Drifts are episodes, not samples: one departure or one pickup is one
 // drift however long it lasts, it only counts once it has lasted a second,

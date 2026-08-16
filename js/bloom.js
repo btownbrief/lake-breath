@@ -22,6 +22,8 @@ export class Bloom {
     this.dpr = 1;
     this.guide = false;       // the inhale's destination ring (sessions)
     this.fireflies = [];      // summer-night companions
+    this.weatherKind = null;  // tomorrow's rain or snow overlay
+    this.weather = [];
   }
 
   // Fireflies on warm nights: they wander low over the water, and a
@@ -73,6 +75,102 @@ export class Bloom {
   setColors(sunCol, skyLow) {
     this.colorA = sunCol.map((v) => Math.round(180 + v * 75));
     this.colorB = skyLow.map((v) => Math.round(120 + v * 135));
+  }
+
+  // Tomorrow's precipitation falls across the same canvas as the bloom.
+  // Particles live in normalized coordinates, so a rotation or resize does
+  // not restart the weather or change its density.
+  drawWeather(kind, dt) {
+    if (kind !== this.weatherKind) {
+      this.weatherKind = kind;
+      this.weather = [];
+      const count = kind === 'rain' ? 68 : kind === 'snow' ? 46 : 0;
+      for (let i = 0; i < count; i++) {
+        this.weather.push({
+          x: Math.random(), y: Math.random(),
+          speed: kind === 'rain' ? 0.34 + Math.random() * 0.34 : 0.025 + Math.random() * 0.045,
+          size: 0.45 + Math.random() * 0.9,
+          phase: Math.random() * Math.PI * 2,
+        });
+      }
+    }
+    if (!this.weather.length) return;
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const t = performance.now() / 1000;
+    ctx.save();
+    if (kind === 'rain') {
+      ctx.strokeStyle = 'rgba(210, 226, 238, 0.24)';
+      ctx.lineCap = 'round';
+      for (const p of this.weather) {
+        p.y = (p.y + p.speed * dt) % 1.08;
+        const x = p.x * W, y = p.y * H;
+        ctx.lineWidth = Math.max(0.7, p.size * this.dpr);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 4 * p.size * this.dpr, y + 18 * p.size * this.dpr);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = 'rgba(246, 249, 252, 0.70)';
+      for (const p of this.weather) {
+        p.y = (p.y + p.speed * dt) % 1.04;
+        const x = (p.x + Math.sin(t * 0.42 + p.phase) * 0.025) * W;
+        const y = p.y * H;
+        ctx.globalAlpha = 0.36 + p.size * 0.28;
+        ctx.beginPath();
+        ctx.arc(x, y, (1.1 + p.size * 1.7) * this.dpr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  // The next anchor appears as a breathing emblem in the cloud field. The
+  // jester cap is reserved for Festival of Fools; other anchors use one
+  // small compass-star pennant. No event words enter the home screen.
+  drawEventEmblem(kind, breath, dim = 1) {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const base = Math.min(W, H) / 400;
+    const scale = 0.88 + breath * 0.78;
+    const u = base * scale;
+    const cx = W * 0.71, cy = H * 0.285;
+    const GOLD = [238, 199, 116], VIOLET = [157, 119, 207];
+    const rgba = (c, a) => `rgba(${Math.round(c[0] * dim)},${Math.round(c[1] * dim)},${Math.round(c[2] * dim)},${a})`;
+    const sway = Math.sin(performance.now() / 1200) * 2.2 * u;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 34 * u);
+    glow.addColorStop(0, rgba(kind === 'fools' ? VIOLET : GOLD, 0.22));
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(cx, cy, 34 * u, 0, Math.PI * 2); ctx.fill();
+    if (kind === 'fools') {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = rgba(GOLD, 0.82);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 7 * u, 19 * u, 5.5 * u, 0, 0, Math.PI * 2);
+      ctx.fill();
+      this._jesterCap(cx, cy + 5 * u, u * 3.35, sway, rgba, GOLD, VIOLET);
+      ctx.fillStyle = rgba([244, 220, 174], 0.72);
+      ctx.beginPath(); ctx.arc(cx, cy + 15 * u, 8.2 * u, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = rgba(VIOLET, 0.82);
+      ctx.beginPath(); ctx.arc(cx - 2.6 * u, cy + 14 * u, 0.9 * u, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + 2.6 * u, cy + 14 * u, 0.9 * u, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.translate(cx, cy); ctx.rotate(Math.PI / 4 + sway * 0.006);
+      ctx.fillStyle = rgba(GOLD, 0.84);
+      ctx.beginPath();
+      ctx.moveTo(0, -18 * u); ctx.lineTo(5 * u, -5 * u);
+      ctx.lineTo(18 * u, 0); ctx.lineTo(5 * u, 5 * u);
+      ctx.lineTo(0, 18 * u); ctx.lineTo(-5 * u, 5 * u);
+      ctx.lineTo(-18 * u, 0); ctx.lineTo(-5 * u, -5 * u);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255, 250, 236, 0.72)';
+      ctx.beginPath(); ctx.arc(0, 0, 3.2 * u, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
   }
 
   // The maple on your shore — the growing thing. A quiet silhouette on a
@@ -298,10 +396,10 @@ export class Bloom {
         const RMax = Math.min(W, H) * 0.112 * this.presence;
         const ringR = RMax * (0.30 + 0.85) + RMax * 0.9;
         const near = Math.max(0, 1 - (1 - b) * 3); // brightens as breath approaches full
-        ctx.strokeStyle = `rgba(255, 250, 238, ${0.10 + near * 0.22})`;
-        ctx.lineWidth = 1.2 * this.dpr;
+        ctx.strokeStyle = `rgba(255, 250, 238, ${0.34 + near * 0.34})`;
+        ctx.lineWidth = 1.8 * this.dpr;
         ctx.beginPath();
-        ctx.ellipse(cx, cy, ringR, ringR * 0.62, 0, 0, Math.PI * 2);
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.globalCompositeOperation = 'screen';

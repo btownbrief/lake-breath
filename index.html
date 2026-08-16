@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0A0E14">
-  <title>Lake Breath — Burlington breathes together</title>
+  <title>Lake Breath: Burlington breathes together</title>
   <meta name="description" content="A living Lake Champlain that breathes with you. Six breaths a minute; every evening at 8:02 the whole town is on the same inhale.">
 
   <link rel="manifest" href="manifest.webmanifest">
@@ -43,13 +43,15 @@
 
     <div class="home-lower">
       <h1 class="greeting" id="greeting">Good evening.</h1>
-      <button class="mantra" id="mantra" title="What the three phrases mean"></button>
+      <button class="mantra" id="mantra" title="What the three phrases mean">Listen. Choose again. Devote.</button>
       <p class="undergreeting" id="undergreeting" aria-live="polite"></p>
-      <p class="town-line" id="town-tomorrow" hidden></p>
-      <p class="town-line" id="town-event" hidden></p>
+      <p class="forecast-key">The sky shows tomorrow. Red is warmer, blue is cooler.</p>
       <div class="begin-row">
         <button class="begin" id="begin">Breathe</button>
-        <div class="practice-picks" id="practice-picks" role="group" aria-label="Choose a practice"></div>
+        <div class="practice-controls">
+          <div class="practice-picks" id="practice-picks" role="group" aria-label="Choose a practice"></div>
+          <button class="duration-control" id="duration-control" aria-label="Choose practice duration">5 min</button>
+        </div>
       </div>
       <p class="safety" id="safety-line"></p>
     </div>
@@ -59,6 +61,10 @@
   <div class="session-layer" aria-label="Session">
     <p class="phase-word" id="phase-word"></p>
     <p class="phase-sub" id="phase-sub"></p>
+    <div class="session-options">
+      <p class="session-instruction" id="session-instruction"></p>
+      <button class="session-steady" id="session-steady" hidden>steady on</button>
+    </div>
     <p class="remaining" id="remaining"></p>
     <p class="presence-live" id="presence-live" aria-live="polite"></p>
     <p class="still-meter" id="still-meter"></p>

@@ -56,8 +56,10 @@ to the same wall clock.
   never a single symmetric tween.
 - `js/sound.js` is fully generative (no audio assets). Sound is ON by
   default; the toggle lives in the top links.
-- `js/stillness.js` = Still Water (accelerometer). iOS needs the
-  permission call from a user gesture; feature-hidden elsewhere.
+- `js/stillness.js` = Steady (accelerometer). iOS needs the permission call
+  from a user gesture. The layer is requested on every session by default,
+  auto-calibrates for flat or upright holding, and silently absents itself
+  where motion data is unavailable.
 - The shared arcade `nav.js` is deliberately NOT included (sanctuary
   choice, documented in README). Don't re-add it without Stephen.
 - Fraunces is used with `font-variation-settings: 'SOFT' 100, 'WONK' 0`
@@ -73,15 +75,15 @@ to the same wall clock.
   60 min, hourly while visible plus a catch-up when a hidden tab returns
   older than 30 min. Every getter is synchronous and returns
   cached-or-null; nothing in the UI may assume data exists.
-- **Accent doctrine: never louder than the scene.** The two home lines are
-  small, dim sans and hide entirely without data. The palette tint is
-  capped at 6% on the sun and low sky (4% grey for a wet tomorrow) and is
-  meant to be felt, not seen — if you can name the colour change, it's a
-  bug. The shore pennants are a few pixels of gold beside the maple and
-  dim with the maple at night. `anchorEvent()` is strictly forward-looking:
-  the next calendar anchor inside 7 days, never anything past. The
-  `'fools'` jester styling is a keyword match that lights itself up when
-  Festival of Fools comes back around; gold pennants are the common case.
+- **The sky is tomorrow's forecast.** Stephen explicitly overruled the old
+  quiet-accent doctrine. A warmer tomorrow must be legibly red or amber, a
+  colder tomorrow legibly blue, and rain, snow, or clear weather changes
+  the living scene. The forecast is the headline feature, not supporting
+  text. Home gets no weather or event text. It gets only a tiny color key.
+  A persisted plain-mode toggle restores the untinted lake. Events are a
+  breathing emblem in the clouds and never words: `'fools'` gets the jester
+  motif, other anchors get the generic motif, and a persisted toggle can
+  hide it. `anchorEvent()` stays strictly forward-looking inside 7 days.
 - **Notes are freeform and moderated.** The client only calls
   `lb_send_text`; every note lands `approved=false`. Approval happens in
   `mod.html` (linked nowhere, not in the service worker's SHELL) against
@@ -110,10 +112,17 @@ to the same wall clock.
   that moment, and reports `onRhythm` out of `judgedGaps` (n taps, n-1
   gaps). Never re-tally a finished session against its final cadence:
   somebody who slowed down gradually was on rhythm the whole way.
+- **Steady and touch are session defaults, not side modes.** Every session
+  requests the motion layer from its Begin gesture, shows the centered
+  object when a sensor answers, and reports drift episodes as plain facts.
+  A per-session switch can turn it off. Tapping the water always makes a
+  ripple, and the session always tells a first-time visitor to tap. Paddle
+  remains the rhythm-judging practice and stays prominent in the picker.
 - **Just Sit is the plain timer** (`kind: 'timer'`): no phase words, no
   cues, bloom in idle presence, and the only ending in the app that uses
-  `sound.gong()` instead of the bowl. Its length comes off the minute dial
-  and lives in `localStorage['lakebreath-sit-mins']`, not in stats.
+  `sound.gong()` instead of the bowl. Every practice, including Just Sit,
+  uses the same 1–20 minute wheel and stores its own preference outside
+  stats under `lakebreath-mins-<practice>`.
 
 ## Layout
 

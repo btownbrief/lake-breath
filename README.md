@@ -20,9 +20,10 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
   The hero object is **the bloom**: six translucent petals on the water
   that open with the inhale and settle on the long exhale; at session end
   they release and drift out over the water as a synthesized bowl rings.
-- **Still Water** — an optional accelerometer practice: hold the phone like
-  a bowl of water; motion churns the lake, stillness lets it turn to
-  glass. The receipt counts glass time and stirs, kindly.
+- **Steady** — an accelerometer layer in every session by default. Hold the
+  phone flat or upright and keep the light centered; the receipt reports
+  movement as a plain fact. It silently disappears without a sensor and
+  can be turned off for a session.
 - **Generative sound, zero assets** — a synthesized lake (rumble, swell,
   laps), a time-of-day pad, generated reverb, breath cues, a bowl, and the
   occasional distant loon at night. Android also gets vibration pacing;
@@ -34,12 +35,11 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
   the town. Every note is held unapproved until a human reads it in the
   moderation queue, then it sits on the wall for 48 hours. The old preset
   lines survive only as the placeholder examples in the note box.
-- **The local layer** — a few quiet lines of real Burlington. Tomorrow's
-  weather (with the day's own blurb when the guide has written one), the
-  next big local moment or tonight's marquee event, and one good link from
-  the neighborhood on the end screen. Tomorrow's forecast also leans the
-  palette a few percent warm, cool, or grey: under the threshold of
-  noticing, which is the point.
+- **The local layer** — the sky itself is tomorrow's Burlington forecast:
+  clearly warmer red or colder blue, with rain, snow, and clear-weather
+  motion. Upcoming anchors breathe as an emblem in the clouds, never event
+  text. Both forecast color and the emblem have quiet persisted toggles.
+  One good neighborhood link can still appear on the end screen.
 - **Your maple** — a tree on your shore that only ever grows, reaching
   full canopy around day 66 of practice (the honest habit-formation
   number). No streaks, no flames, nothing to break.

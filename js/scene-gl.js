@@ -25,6 +25,7 @@ uniform float u_sunSize;
 uniform vec4 u_ripple[5];  // x, y(uv), birth(sec), strength
 uniform float u_bloom;     // glow under the bloom (0..1)
 uniform float u_churn;     // Still Water: device motion churns the lake
+uniform float u_clear;     // sunny tomorrow: brighter disc and glitter
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
@@ -43,6 +44,23 @@ float ridge(float x, float seed){
   return noise(vec2(x * 3.1 + seed, seed)) * .55 + noise(vec2(x * 9.7 + seed, seed * 2.)) * .18;
 }
 
+float puff(vec2 p, vec2 c, vec2 r){
+  vec2 q = (p - c) / r;
+  return exp(-dot(q, q) * 1.8);
+}
+
+// A long soft base with irregular rising lobes. Three differently sized
+// clusters make recognisable cumulus instead of a uniform horizon smear.
+float cumulus(vec2 p, vec2 c, float s, float seed){
+  float d = puff(p, c + vec2(0., .025 * s), vec2(.17, .036) * s);
+  d = max(d, puff(p, c + vec2(-.09, -.005) * s, vec2(.075, .055) * s));
+  d = max(d, puff(p, c + vec2(-.025, -.042) * s, vec2(.088, .080) * s));
+  d = max(d, puff(p, c + vec2(.055, -.020) * s, vec2(.082, .062) * s));
+  d = max(d, puff(p, c + vec2(.115, .008) * s, vec2(.060, .046) * s));
+  float edge = (fbm(p * vec2(18., 25.) + seed) - .5) * .18;
+  return smoothstep(.18, .58, d + edge);
+}
+
 void main(){
   vec2 uv = gl_FragCoord.xy / u_res;      // 0,0 bottom-left
   float y = 1. - uv.y;                    // from top
@@ -59,7 +77,8 @@ void main(){
     float d = distance(vec2(uv.x, y * (u_res.y / u_res.x)), vec2(u_sun.x, u_sun.y * (u_res.y / u_res.x)));
     sunGlow = exp(-d * d / (u_sunSize * u_sunSize * 2.));
     float disc = smoothstep(u_sunSize * .42, u_sunSize * .34, d);
-    col += u_sunCol * (sunGlow * .55 + disc * (1. - u_night * .35));
+    float sunBoost = 1. + u_clear * .58;
+    col += u_sunCol * (sunGlow * .55 + disc * (1. - u_night * .35)) * sunBoost;
     // stars — sized to survive the reduced-resolution render
     if (u_night > .01) {
       vec2 grid = uv * vec2(52., 34.);
@@ -73,9 +92,22 @@ void main(){
         col += vec3(.88, .93, 1.) * star * tw * mag * u_night * (1. - y / horizon) * .9;
       }
     }
-    // soft cloud band near horizon
-    float cl = fbm(vec2(uv.x * 3. + u_time * .008, y * 14.)) * smoothstep(.45, 1., t) * .5;
-    col = mix(col, mix(u_skyLow, u_sunCol, .25), cl * (1. - u_night * .55) * .35);
+    // Soft, shaped cumulus. The tops catch the forecast-tinted sun while
+    // the undersides borrow the distant ridge, so the forms hold together
+    // at dawn, day, gold, and night.
+    vec2 cp = vec2(uv.x + u_time * .0015, y);
+    float c1 = cumulus(cp, vec2(.18, horizon * .40), 1.00, 2.1);
+    float c2 = cumulus(cp, vec2(.59, horizon * .28), .78, 7.4);
+    float c3 = cumulus(cp, vec2(.91, horizon * .44), 1.18, 13.7);
+    float cl = max(c1, max(c2, c3));
+    float cloudGrain = fbm(vec2(uv.x * 10. + 4., y * 18.));
+    float topLight = 1. - smoothstep(horizon * .24, horizon * .50, y);
+    vec3 cloudShadow = mix(u_skyLow, u_ridge, .58 + u_night * .12);
+    vec3 cloudLight = mix(u_sunCol, vec3(1.), .20 * (1. - u_night));
+    cloudLight *= mix(1., .44, u_night);
+    float cloudLit = clamp(.08 + topLight * .72 + (cloudGrain - .5) * .50, 0., 1.);
+    vec3 cloudCol = mix(cloudShadow, cloudLight, cloudLit);
+    col = mix(col, cloudCol, cl * mix(.64, .28, u_night));
     // ---- ridges (two, for depth), edges anti-aliased
     float aa = 1.5 / u_res.y;
     float r1 = horizon - .040 - ridge(uv.x, 7.) * .046;
@@ -121,7 +153,7 @@ void main(){
     float column = exp(-dx * dx) * (.25 + .75 * lowSun);
     float sparkle = smoothstep(.35, 1., noise(vec2(uv.x * 320., depth * 240. - u_time * 1.4)))
                   * smoothstep(-.6, .9, w);
-    col += u_sunCol * column * (.035 + sparkle * .75) * (.35 + .65 * breath);
+    col += u_sunCol * column * (.035 + sparkle * .75) * (.35 + .65 * breath) * (1. + u_clear * 1.15);
     // moonless deep night still shimmers faintly with starlight
     col += vec3(.75, .85, 1.) * sparkle * u_night * .05;
   }
@@ -182,7 +214,7 @@ export class LakeScene {
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     for (const name of ['u_res', 'u_time', 'u_breath', 'u_night', 'u_horizon',
       'u_skyTop', 'u_skyLow', 'u_waterHi', 'u_waterLo', 'u_sunCol', 'u_ridge',
-      'u_sun', 'u_sunSize', 'u_ripple', 'u_churn']) {
+      'u_sun', 'u_sunSize', 'u_ripple', 'u_churn', 'u_clear']) {
       this.uniforms[name] = gl.getUniformLocation(prog, name);
     }
     this.ok = true;
@@ -235,6 +267,7 @@ export class LakeScene {
     gl.uniform2f(u.u_sun, state.sun[0], state.sun[1]);
     gl.uniform1f(u.u_sunSize, state.sunSize);
     gl.uniform1f(u.u_churn, state.churn || 0);
+    gl.uniform1f(u.u_clear, state.clear || 0);
     const rip = this._rippleBuf;
     rip.fill(0);
     this.ripples = this.ripples.filter((r) => t - r.t < 5);

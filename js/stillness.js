@@ -1,6 +1,7 @@
 // Lake Breath — Steady: the accelerometer as a meditation anchor.
-// Hold the phone flat, screen up, like a full bowl of water. Tilt sends
-// the bubble wandering; motion churns the lake underneath it.
+// Hold the phone flat, screen up, or upright in either orientation. The
+// first steady pose becomes home. Tilt sends the bubble wandering; motion
+// churns the lake underneath it.
 //
 // Two outputs:
 //   getChurn() — smoothed 0..1 shake, 0 = held perfectly still (the lake)
@@ -12,12 +13,16 @@ let churn = 0;          // smoothed 0..1
 let baseline = 9.81;    // slow-tracked gravity magnitude
 let listening = false;
 let lastSpike = 0;
-let tiltX = 0, tiltY = 0;   // smoothed, in g
+let tiltX = 0, tiltY = 0;   // smoothed displacement from home, in g
 let lastEvent = 0;          // performance.now() of the last real reading
-let flat = 0;               // 0..1, how flat the phone is being held
+let posture = 0;            // 0..1, confidence in flat or upright holding
+let mode = 'flat';
+let uprightBase = null;
+let motionFixture = false;
+try { motionFixture = new URLSearchParams(location.search).get('motionfix') === '1'; } catch { /* node or no URL */ }
 
 export function supported() {
-  return typeof DeviceMotionEvent !== 'undefined';
+  return motionFixture || typeof DeviceMotionEvent !== 'undefined';
 }
 
 // Must be called from a user gesture. Resolves true only once motion data
@@ -26,6 +31,7 @@ export function supported() {
 // that silently reads zero forever is worse than an honest no.
 export async function start() {
   if (!supported()) return false;
+  if (motionFixture) { listening = true; return true; }
   try {
     if (typeof DeviceMotionEvent.requestPermission === 'function') {
       const res = await DeviceMotionEvent.requestPermission();
@@ -50,7 +56,8 @@ export async function start() {
 
 export function stop() {
   if (listening) { window.removeEventListener('devicemotion', onMotion); listening = false; }
-  churn = 0; tiltX = 0; tiltY = 0; flat = 0; lastEvent = 0;
+  churn = 0; tiltX = 0; tiltY = 0; posture = 0; lastEvent = 0;
+  mode = 'flat'; uprightBase = null;
 }
 
 function onMotion(e) {
@@ -73,29 +80,50 @@ function onMotion(e) {
   churn = raw > churn ? churn + (raw - churn) * 0.5 : churn + (raw - churn) * 0.03;
   if (raw > 0.45 && now - lastSpike > 700) lastSpike = now;
 
-  // ---- the bubble. Only meaningful when the phone is roughly flat, so we
-  // track flatness (z dominant) and fade the tilt out as the phone stands
-  // up rather than flinging the bubble to a corner.
+  // ---- the bubble. Gravity along z means flat; gravity in the screen
+  // plane means upright. Hysteresis keeps the mode from fluttering halfway
+  // between the two. Upright calibrates to the pose in the person's hand,
+  // so portrait and landscape both have a natural centre.
   const az = Math.abs(a.z || 0);
   const flatNow = Math.max(0, Math.min(1, (az - 6.4) / 2.6));
+  const uprightNow = Math.max(0, Math.min(1, (Math.hypot(a.x || 0, a.y || 0) - 6.4) / 2.6));
+  const nextMode = uprightNow > flatNow ? 'upright' : 'flat';
+  if (nextMode !== mode && Math.abs(uprightNow - flatNow) > 0.18) {
+    mode = nextMode;
+    tiltX = 0; tiltY = 0;
+    uprightBase = mode === 'upright'
+      ? { x: (a.x || 0) / 9.8, y: (a.y || 0) / 9.8, z: (a.z || 0) / 9.8 }
+      : null;
+  }
   const g = 9.8;
-  const kFlat = 1 - Math.exp(-dt * 6);
-  flat += (flatNow - flat) * kFlat;
+  const poseNow = mode === 'upright' ? uprightNow : flatNow;
+  const kPose = 1 - Math.exp(-dt * 6);
+  posture += (poseNow - posture) * kPose;
   // time-based smoothing: same feel at 20Hz or 60Hz
   const k = 1 - Math.exp(-dt * 4.5);
-  tiltX += ((a.x || 0) / g - tiltX) * k;
-  tiltY += ((a.y || 0) / g - tiltY) * k;
+  let targetX = (a.x || 0) / g;
+  let targetY = (a.y || 0) / g;
+  if (mode === 'upright' && uprightBase) {
+    const portrait = Math.abs(uprightBase.y) >= Math.abs(uprightBase.x);
+    targetX = portrait ? (a.x || 0) / g - uprightBase.x : (a.y || 0) / g - uprightBase.y;
+    targetY = (a.z || 0) / g - uprightBase.z;
+  }
+  tiltX += (targetX - tiltX) * k;
+  tiltY += (targetY - tiltY) * k;
 }
 
-export function getChurn() { return listening ? churn : 0; }
+export function getChurn() { return motionFixture && listening ? 0.02 : listening ? churn : 0; }
 export function spiked() {
+  if (motionFixture) return false;
   const s = performance.now() - lastSpike < 120;
   return s;
 }
 
-// {x, y} in g, already smoothed and faded by flatness. x positive = the
-// phone's right edge is low; y positive = the top edge is low.
+// {x, y} in g, smoothed around the active pose. `flat` keeps the engine's
+// established field name, but now means that either supported pose is
+// confidently held. `mode` lets the UI name what was auto-picked.
 export function getTilt() {
   if (!listening) return { x: 0, y: 0, flat: 0 };
-  return { x: tiltX * flat, y: tiltY * flat, flat };
+  if (motionFixture) return { x: 0.025, y: -0.018, flat: 0.95, mode: 'flat' };
+  return { x: tiltX, y: tiltY, flat: posture, mode };
 }

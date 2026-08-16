@@ -106,7 +106,7 @@ body[data-quiet="true"] .chrome { opacity: 0; pointer-events: none; }
   font-family: var(--sans); font-size: .82rem; font-weight: 500;
   letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint);
 }
-.toplinks { display: flex; gap: 20px; }
+.toplinks { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px 16px; }
 .tbtn {
   background: none; border: 0; padding: 4px 0; cursor: pointer;
   font-family: var(--sans); font-size: .88rem; color: var(--ink-soft);
@@ -142,10 +142,8 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   text-shadow: 0 1px 12px rgba(0, 0, 0, .4);
 }
 .undergreeting b { color: var(--gold); font-weight: 550; }
-/* one of three phrases, today's. Set apart, and unexplained on the home
-   screen: tapping it opens the Field Notes entry that explains all three,
-   which is the only place the explanation belongs. Styled exactly as the
-   line was when it was a <p>; it is a button only so it can be tapped. */
+/* The three phrases stay together. Tapping them opens the Field Notes
+   entry that explains what they ask of a day. */
 .mantra {
   display: block; appearance: none; background: none; border: 0; padding: 0;
   text-align: left; cursor: pointer;
@@ -161,16 +159,12 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   box-shadow: 0 1.5px 0 0 var(--gold);
 }
 
-/* the local layer: two whispers under the greeting. Small, sans, dim —
-   they must never compete with the greeting or the button. */
-.town-line {
-  display: flex; align-items: center; gap: 7px;
-  font-size: .82rem; color: var(--ink-faint); max-width: 40ch;
+/* The key is deliberately small. The forecast itself is the scene. */
+.forecast-key {
+  font-size: .75rem; color: var(--ink-faint); max-width: 44ch;
   margin-top: -6px;
   text-shadow: 0 1px 10px rgba(0, 0, 0, .45);
 }
-.town-line[hidden] { display: none; }
-.town-glyph { width: 13px; height: 13px; flex: none; opacity: .8; }
 
 .begin-row { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .begin {
@@ -194,6 +188,7 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   display: flex; flex-wrap: wrap; align-items: baseline;
   gap: 4px 14px; max-width: 34ch;
 }
+.practice-controls { display: flex; align-items: flex-start; gap: 14px; }
 .practice-pick {
   background: none; border: 0; cursor: pointer; padding: 2px 0;
   font-family: var(--sans); font-size: .86rem; color: var(--ink-faint);
@@ -203,7 +198,15 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
 .practice-pick:hover { color: var(--ink-soft); }
 .practice-pick:focus-visible { outline: none; color: var(--ink-soft); border-bottom-color: var(--gold); }
 .practice-pick[aria-pressed="true"] { color: var(--gold); }
-.practice-pick .pick-dur { color: var(--ink-faint); margin-left: 6px; }
+.duration-control {
+  flex: none; cursor: pointer;
+  font-family: var(--sans); font-size: .84rem; font-weight: 550;
+  color: var(--ink); background: rgba(7, 11, 17, .38);
+  border: 1px solid rgba(255, 255, 255, .22); border-radius: 14px;
+  padding: 5px 10px; backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .16);
+}
+.duration-control:hover, .duration-control:focus-visible { border-color: var(--gold); outline: none; }
 
 .safety {
   font-size: .72rem; line-height: 1.5; color: var(--ink-faint);
@@ -236,6 +239,22 @@ body[data-view="session"] .session-layer { opacity: 1; }
   max-width: 30ch; text-align: center;
   text-shadow: 0 1px 12px rgba(0,0,0,.45);
 }
+.session-options {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  margin-top: 8px; max-width: 34ch;
+}
+.session-instruction {
+  font-size: .82rem; line-height: 1.4; color: var(--ink-soft);
+  text-align: center; text-shadow: 0 1px 12px rgba(0,0,0,.55);
+}
+.session-steady {
+  pointer-events: auto; cursor: pointer;
+  background: rgba(7, 11, 17, .42); color: var(--ink-soft);
+  border: 1px solid rgba(255,255,255,.18); border-radius: 14px;
+  padding: 4px 10px; font-family: var(--sans); font-size: .76rem;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+.session-steady:focus-visible { outline: 1.5px solid var(--gold); outline-offset: 2px; }
 .remaining {
   margin-top: 6px;
   font-size: .8rem; color: var(--ink-faint);
@@ -258,11 +277,17 @@ body[data-view="session"] .session-layer { opacity: 1; }
 body[data-practice="still"] .still-meter { margin-top: 24vh; }
 .stop {
   margin-top: auto; pointer-events: auto;
-  background: none; border: 0; cursor: pointer;
-  font-family: var(--sans); font-size: .9rem; color: var(--ink-faint);
-  padding: 12px 24px; transition: color .3s;
+  background: rgba(5, 9, 14, .50); border: 1px solid rgba(255,255,255,.20); cursor: pointer;
+  font-family: var(--sans); font-size: .9rem; color: rgba(255,255,255,.88);
+  padding: 9px 22px; border-radius: 18px;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 5px 22px rgba(0,0,0,.22);
+  transition: color .3s, background .3s, border-color .3s;
 }
-.stop:hover, .stop:focus-visible { color: var(--ink-soft); outline: none; }
+.stop:hover, .stop:focus-visible {
+  color: var(--ink); background: rgba(5, 9, 14, .66);
+  border-color: rgba(255,255,255,.34); outline: none;
+}
 
 /* the invisible-but-native iOS tick control (no box, no dashes). It sits
    under the Stop button in stacking order so Stop always wins the tap. */
@@ -385,15 +410,7 @@ body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
 }
 .practice-row[aria-pressed="true"] .name { color: var(--gold); }
 .practice-row .tag { font-size: .85rem; color: var(--ink-soft); }
-.durations { display: flex; gap: 18px; margin: 10px 0 2px; }
-.durations button {
-  background: none; border: 0; cursor: pointer; padding: 4px 0;
-  font-family: var(--sans); font-size: .9rem; color: var(--ink-faint);
-  border-bottom: 1.5px solid transparent;
-}
-.durations button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--gold); }
-
-/* Just Sit's minute dial: a scroll-snapped row of numbers, the centred one
+/* Every practice's minute dial: a scroll-snapped row of numbers, the centred one
    being the choice. The mask fades the ends so it reads as a wheel that
    continues past the edges rather than a list that stops. */
 .minute-dial {
@@ -572,4 +589,11 @@ body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
 @media (prefers-reduced-motion: reduce) {
   .sheet, .toast, .begin, .end-actions .primary { transition-duration: .01s; }
   .end-layer > * { animation-duration: .01s !important; }
+}
+
+@media (max-width: 520px) {
+  .topline { align-items: flex-start; gap: 12px; }
+  .toplinks { max-width: 68%; }
+  .practice-controls { width: 100%; }
+  .practice-picks { flex: 1; }
 }

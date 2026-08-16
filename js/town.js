@@ -1,10 +1,10 @@
 // Lake Breath — the local layer. Five small static JSON feeds from the
 // Btown Brief guide, cached for an hour, read synchronously by the app.
 //
-// Doctrine: the town is a whisper, never a headline. Nothing here may be
-// louder than the lake. Every feed is optional; a 404, an offline phone,
-// or a blocked localStorage all resolve to null and the UI simply hides
-// that line. Plain GETs, no headers, no keys, no cookies.
+// The sky is tomorrow's forecast, legible by design. Every feed is still
+// optional; a 404, an offline phone, or blocked localStorage resolve to
+// null and the lake simply keeps its ordinary palette. Plain GETs, no
+// headers, no keys, no cookies.
 //
 // Feeds (all CORS *, all small):
 //   weather/latest.json          NWS periods, today's and tomorrow's highs
@@ -45,10 +45,14 @@ function save() {
 }
 
 // A test hook, and only that: ?townfix=N serves a baked fixture and never
-// touches the network, so Playwright can see the town lines deterministically.
+// touches the network, so Playwright can see the town layer deterministically.
 //   1 = an upcoming anchor three days out (the common, generic case)
-//   2 = no anchor at all, so the rail's marquee carries the line
+//   2 = no anchor at all
 //   3 = an anchor whose name trips the jester keyword
+//   4 = much warmer tomorrow
+//   5 = much colder tomorrow
+//   6 = rain tomorrow
+//   7 = snow tomorrow
 function fixtureOn() {
   try {
     const v = new URLSearchParams(location.search).get('townfix');
@@ -73,21 +77,27 @@ function fixture(variant) {
     2: [{ id: 'fixture-later', name: 'South End Art Hop', date: dayPlus(now, 40), note: 'South End', hidden: false }],
     3: [{ id: 'fixture-fools', name: 'Festival of Fools', date: dayPlus(now, 3), note: 'Church St', hidden: false }],
   };
+  const weather = {
+    4: { today: 58, tomorrow: 78, pop: 5, short: 'Sunny' },
+    5: { today: 78, tomorrow: 56, pop: 10, short: 'Mostly Clear' },
+    6: { today: 74, tomorrow: 66, pop: 90, short: 'Rain Showers' },
+    7: { today: 34, tomorrow: 24, pop: 90, short: 'Snow Showers' },
+  }[variant] || { today: 74, tomorrow: 82, pop: 10, short: 'Mostly Sunny' };
   return {
     fetchedAt: now,
     weather: {
       forecast: {
         periods: [
-          { name: 'Today', start: `${today}T12:00:00-04:00`, is_day: true, temp_f: 74, pop: 0, short: 'Mostly Sunny' },
+          { name: 'Today', start: `${today}T12:00:00-04:00`, is_day: true, temp_f: weather.today, pop: 0, short: 'Mostly Sunny' },
           { name: 'Tonight', start: `${today}T20:00:00-04:00`, is_day: false, temp_f: 55, pop: 0, short: 'Mostly Clear' },
-          { name: 'Tomorrow', start: `${tom}T12:00:00-04:00`, is_day: true, temp_f: 82, pop: 10, short: 'Mostly Sunny' },
+          { name: 'Tomorrow', start: `${tom}T12:00:00-04:00`, is_day: true, temp_f: weather.tomorrow, pop: weather.pop, short: weather.short },
           { name: 'Tomorrow Night', start: `${tom}T20:00:00-04:00`, is_day: false, temp_f: 64, pop: 20, short: 'Partly Cloudy' },
         ],
       },
     },
-    read: { week: [{ date: tom, blurb: 'Sunny and pleasant near 82, the pick of the week for being outside.' }] },
+    read: { week: [{ date: tom, blurb: `${weather.short} near ${weather.tomorrow}.` }] },
     rail: { days: [{ date: today, n: 52, t: 'Half Priced Oysters at La Reprise', picks: [] }] },
-    calendar: anchors[variant] || anchors[1],
+    calendar: anchors[variant] || (variant >= 4 ? [] : anchors[1]),
     good: {
       items: [{
         title: 'Spider web spotted at Eastwoods this morning.',
@@ -242,16 +252,15 @@ export function eventsTonight(nowMs = Date.now()) {
 
 // ------------------------------------------------------------- the tint
 
-// The palette whisper. Tomorrow being warmer leans the sun and the low sky
-// warm; colder leans them cool; a wet tomorrow pulls the sky a touch grey.
-// Ceiling is 6% on a 12F swing, which is under the threshold where anyone
-// would say "the app looks orange today" — that's the point.
+// Tomorrow's temperature delta is deliberately readable in the sky. A 12F
+// swing reaches a 34% color shift. Warmth pushes red and amber into the
+// full scene; cold pushes clear blue. Wet weather softens saturation.
 export function tintFor(tw) {
   if (!tw) return null;
   const d = Math.max(-12, Math.min(12, tw.deltaF || 0));
-  const warm = d >= 5 ? (d / 12) * 0.06 : 0;
-  const cool = d <= -5 ? (-d / 12) * 0.06 : 0;
-  const grey = (tw.pop || 0) >= 50 ? 0.04 : 0;
+  const warm = d > 0 ? (d / 12) * 0.34 : 0;
+  const cool = d < 0 ? (-d / 12) * 0.34 : 0;
+  const grey = (tw.pop || 0) >= 50 ? 0.12 : 0;
   return warm || cool || grey ? { warm, cool, grey } : null;
 }
 
@@ -263,15 +272,24 @@ const clamp1 = (c) => c.map((v) => Math.min(1, Math.max(0, v)));
 export function tintPalette(pal, tw) {
   const t = tintFor(tw);
   if (!t) return pal;
-  const warmer = (c, k) => clamp1([c[0] * (1 + k), c[1] * (1 + k * 0.35), c[2] * (1 - k)]);
-  const cooler = (c, k) => clamp1([c[0] * (1 - k), c[1] * (1 - k * 0.2), c[2] * (1 + k)]);
+  const warmer = (c, k) => clamp1([
+    c[0] + (1 - c[0]) * k * 1.5,
+    c[1] * (1 - k * 0.95),
+    c[2] * (1 - k * 1.9),
+  ]);
+  const cooler = (c, k) => clamp1([
+    c[0] * (1 - k * 0.8),
+    c[1] * (1 - k * 0.18),
+    c[2] + (1 - c[2]) * k * 0.9,
+  ]);
   const greyer = (c, k) => {
     const m = (c[0] + c[1] + c[2]) / 3;
     return clamp1(c.map((v) => v + (m - v) * k));
   };
   const out = { ...pal };
-  if (t.warm) { out.sunCol = warmer(pal.sunCol, t.warm); out.skyLow = warmer(pal.skyLow, t.warm); }
-  if (t.cool) { out.sunCol = cooler(pal.sunCol, t.cool); out.skyLow = cooler(pal.skyLow, t.cool); }
+  const keys = ['skyTop', 'skyLow', 'waterHi', 'waterLo', 'sunCol'];
+  if (t.warm) for (const key of keys) out[key] = warmer(out[key], t.warm);
+  if (t.cool) for (const key of keys) out[key] = cooler(out[key], t.cool);
   if (t.grey) { out.skyTop = greyer(out.skyTop, t.grey); out.skyLow = greyer(out.skyLow, t.grey); }
   return out;
 }
