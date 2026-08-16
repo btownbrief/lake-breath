@@ -255,6 +255,12 @@ body[data-view="session"] .session-layer { opacity: 1; }
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 .session-steady:focus-visible { outline: 1.5px solid var(--gold); outline-offset: 2px; }
+.tap-line {
+  margin-top: 7px; min-height: 1.35em;
+  font-size: .78rem; color: var(--gold); text-align: center;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 12px rgba(0,0,0,.55);
+}
 .remaining {
   margin-top: 6px;
   font-size: .8rem; color: var(--ink-faint);

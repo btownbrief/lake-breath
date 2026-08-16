@@ -116,8 +116,10 @@ to the same wall clock.
   requests the motion layer from its Begin gesture, shows the centered
   object when a sensor answers, and reports drift episodes as plain facts.
   A per-session switch can turn it off. Tapping the water always makes a
-  ripple, and the session always tells a first-time visitor to tap. Paddle
-  remains the rhythm-judging practice and stays prominent in the picker.
+  ripple, feeds `paddleStroke()`, and gets live plain-language rhythm
+  feedback. The session explicitly says that each touch is a paddle stroke.
+  Paddle remains the dedicated practice with last-session context and stays
+  prominent in the picker.
 - **Just Sit is the plain timer** (`kind: 'timer'`): no phase words, no
   cues, bloom in idle presence, and the only ending in the app that uses
   `sound.gong()` instead of the bowl. Every practice, including Just Sit,

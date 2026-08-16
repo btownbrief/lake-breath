@@ -24,6 +24,9 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
   phone flat or upright and keep the light centered; the receipt reports
   movement as a plain fact. It silently disappears without a sensor and
   can be turned off for a session.
+- **Paddle strokes everywhere** — breathing prompts, the centered light,
+  and water taps can all run together. Each tap ripples the lake and joins
+  the live rhythm count; Paddle remains the dedicated tapping practice.
 - **Generative sound, zero assets** — a synthesized lake (rumble, swell,
   laps), a time-of-day pad, generated reverb, breath cues, a bowl, and the
   occasional distant loon at night. Android also gets vibration pacing;

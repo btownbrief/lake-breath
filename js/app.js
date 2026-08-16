@@ -151,7 +151,7 @@ function maybeHintPaddle(tech) {
     if (localStorage.getItem(PADDLE_HINT_KEY)) return;
     localStorage.setItem(PADDLE_HINT_KEY, '1');
   } catch { return; } // no storage means no way to keep the promise of "once"
-  toast('Every tap ripples. Paddle makes a whole practice of it.');
+  toast('That was a paddle stroke. Keep tapping slowly and the lake follows your rhythm.');
 }
 
 function openSheet(id) { const s = $(id); s.dataset.open = 'true'; s.inert = false; }
@@ -489,8 +489,15 @@ async function startSessionInner({ town: isTown = false } = {}) {
       : tech.kind === 'paddle' ? 'Tap the water at your own steady pace. Like paddle strokes. Keep the rhythm; let your mind go where it wants.'
       : '';
   $('session-instruction').textContent = tech.kind === 'paddle'
-    ? 'Tap the water in a slow, steady rhythm. The lake answers.'
-    : 'Tap the water gently. The lake answers.';
+    ? 'Tap the water like a paddle stroke. Find a slow, steady rhythm.'
+    : isBreathing && steadyReady
+      ? 'Breathe with the words. Keep the light centered. Tap the water like a paddle.'
+      : isBreathing
+        ? 'Breathe with the words. Tap the water like a paddle.'
+        : steadyReady
+          ? 'Keep the light centered. Tap the water like a paddle.'
+          : 'Tap the water like a paddle.';
+  $('tap-line').textContent = 'Tap the water. Each touch is a paddle stroke.';
   const steadyBtn = $('session-steady');
   steadyBtn.hidden = !steadyReady || tech.kind === 'still';
   steadyBtn.textContent = 'steady on';
@@ -598,9 +605,14 @@ function sessionFrame(nowP) {
   return { breath: 0.1, churn: steadyChurn };
 }
 
-// A paddle stroke: a ripple where the finger landed (or at the waterline
-// below it, if they tapped the sky), a soft dip, and one more stroke on
-// the count. Nothing here can go wrong; a long gap just means a long gap.
+function tapLine(tally) {
+  if (tally.strokes === 1) return '1 paddle stroke. Tap again when it feels right.';
+  return `${tally.strokes} paddle strokes. ${tally.onRhythm} of ${tally.judgedGaps} gaps near your rhythm.`;
+}
+
+// A paddle stroke in every session: a ripple where the finger landed, a
+// soft sound, and a live rhythm fact. Paddle remains the dedicated practice,
+// but breathing and steadiness no longer make the person's taps disappear.
 function paddleTap(xUv, yUv) {
   const s = session;
   const nowP = performance.now();
@@ -611,7 +623,7 @@ function paddleTap(xUv, yUv) {
   // the stroke has to leave a mark or the practice has no answer
   scene.ripple(xUv, Math.max(HORIZON + 0.02, yUv), 1);
   sound.stroke();
-  $('still-meter').textContent = `stroke ${s.paddle.strokes}`;
+  $('tap-line').textContent = tapLine(s.paddle);
 }
 
 let lastRemainText = '';
@@ -697,7 +709,7 @@ function finishSession(completed) {
   const before = mapleStage(stats.daysPracticed);
   const lastSteady = stats.lastSteady, lastPaddle = stats.lastPaddle;
   // nothing is re-judged here: the tally was built stroke by stroke
-  const tally = s.key === 'paddle' ? s.paddle : null;
+  const tally = s.paddle;
   stats = recordSession(stats, Date.now(), practicedSec);
   if (s.key === 'still' && practicedSec >= 30) {
     if (s.stillSec > (stats.glassBest || 0)) stats.glassBest = Math.round(s.stillSec);
@@ -736,6 +748,10 @@ function finishSession(completed) {
   else if (s.town) receipt.push('You breathed with the whole town tonight.');
   else if (s.key === 'still') receipt.push(steadyReceipt(s, practicedSec, lastSteady));
   else if (s.key === 'paddle') receipt.push(paddleReceipt(tally, lastPaddle));
+  else if (tally.strokes === 1) receipt.push('You made 1 paddle stroke.');
+  else if (tally.strokes > 1) {
+    receipt.push(`You made ${tally.strokes} paddle strokes. ${tally.onRhythm} of ${tally.judgedGaps} gaps stayed near your rhythm.`);
+  }
   if (practicedSec >= 30 && s.steadyOn && s.key !== 'still') receipt.push(steadyFact(s.drifts));
   $('end-sub').textContent = receipt.join(' ');
   $('end-grow').textContent =
@@ -1130,7 +1146,7 @@ function wire() {
     // stroke that happens to tick)
     const onControl = e.target instanceof Element &&
       e.target.closest('button, a, .sheet, .bench, .guide');
-    if (session && session.tech.kind === 'paddle' && !onControl) paddleTap(x, y);
+    if (session && !onControl) paddleTap(x, y);
     else if (y > HORIZON) scene.ripple(x, y, 1);
     if (session && !onControl) maybeHintPaddle(session.tech);
     if (session) wakeQuietTimer();
