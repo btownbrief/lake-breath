@@ -282,7 +282,7 @@ end $$;
 
 -- Burlington's completed seconds this NY month, from the existing scores
 -- table (game = 'lake-breath', score = that player's cumulative seconds,
--- month_key already America/New_York — same bucketing the whole arcade
+-- month already America/New_York — same bucketing the whole arcade
 -- uses). least() caps any single player at 4 hours per day elapsed.
 create or replace function public.lb_town_seconds(p_game text)
 returns bigint
@@ -291,7 +291,9 @@ language sql security definer set search_path = public as $$
            14400 * extract(day from (now() at time zone 'America/New_York'))::bigint)), 0)
   from scores s
   where s.game = p_game
-    and s.month_key = to_char(now() at time zone 'America/New_York', 'YYYY-MM');
+    -- production's column is `month` (not month_key as the per-game schema.sql files say);
+    -- left(...,7) works whether it holds 'YYYY-MM' text or a first-of-month date
+    and left(s.month::text, 7) = to_char(now() at time zone 'America/New_York', 'YYYY-MM');
 $$;
 
 -- ---------------------------------------------------------------- grants
