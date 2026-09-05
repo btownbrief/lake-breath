@@ -46,6 +46,12 @@ export const NOTE_EXAMPLES = [
 // screen; they either land or they don't.
 export const MANTRAS = ['Listen.', 'Choose again.', 'Devote.'];
 
+// Stephen fills in his playlist URLs here. An empty string hides the link.
+export const MUSIC = {
+  spotify: '',
+  youtube: '',
+};
+
 // First run only, and re-openable from Field Notes. Short lines, in order:
 // what the lake is, when the town gathers, what the practices are, what
 // grows, what happens after. Then the three phrases.

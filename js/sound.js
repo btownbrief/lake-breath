@@ -5,13 +5,24 @@
 // stereo drift, per-phase breath cues, a synthesized bowl for endings,
 // and — rarely, at night — something like a loon far out on the water.
 //
-// iOS notes handled: gesture-gated resume, audioSession 'playback' where
-// available, interrupted-state recovery, fade-then-suspend on hide.
+// iOS notes handled: gesture-gated resume, an ambient audio session when
+// someone brings their own music, interrupted-state recovery, and suspend.
 
 import { nyParts } from './engine.js';
 
 let ctx = null, master = null, verb = null, layers = null;
-let enabled = true, ambientOn = false, loonTimer = 0, suspendTimer = 0;
+let enabled = true, ownMusic = false, ambientOn = false, loonTimer = 0, suspendTimer = 0;
+
+function setAudioSessionType() {
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = ownMusic ? 'ambient' : 'playback';
+  } catch { /* absent or unavailable */ }
+}
+
+export function setOwnMusicMode(on) {
+  ownMusic = !!on;
+  setAudioSessionType();
+}
 
 export function soundEnabled() { return enabled; }
 export function setSoundEnabled(on) {
@@ -80,6 +91,7 @@ function lfo(freq, depth, param) {
 }
 
 export function unlock() {
+  setAudioSessionType();
   if (!enabled) return false;
   try {
     if (!ctx) {
@@ -97,7 +109,6 @@ export function unlock() {
       });
     }
     if (ctx.state !== 'running') ctx.resume();
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* fine */ }
     if (!ambientOn) startAmbient();
     return true;
   } catch { return false; }
@@ -184,6 +195,7 @@ export function fadeOutAndSuspend() {
   } catch { /* fine */ }
 }
 export function resumeFromGesture() {
+  setAudioSessionType();
   if (!ctx || !enabled) return;
   clearTimeout(suspendTimer); // a rapid return must not be re-suspended
   try {
@@ -374,5 +386,5 @@ export function maybeLoon(nightAmount) {
 export function audioCtx() { return ctx; }
 
 export function releaseSession() {
-  try { if (navigator.audioSession) navigator.audioSession.type = 'auto'; } catch { /* fine */ }
+  setAudioSessionType();
 }

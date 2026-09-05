@@ -165,6 +165,10 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   margin-top: -6px;
   text-shadow: 0 1px 10px rgba(0, 0, 0, .45);
 }
+.forecast-key a {
+  color: var(--ink-soft); text-decoration: none;
+}
+.forecast-key a:hover, .forecast-key a:focus-visible { text-decoration: underline; }
 
 .begin-row { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .begin {
@@ -243,6 +247,7 @@ body[data-view="session"] .session-layer { opacity: 1; }
   display: flex; flex-direction: column; align-items: center; gap: 7px;
   margin-top: 8px; max-width: 34ch;
 }
+.session-buttons { display: flex; align-items: center; justify-content: center; gap: 7px; }
 .session-instruction {
   font-size: .82rem; line-height: 1.4; color: var(--ink-soft);
   text-align: center; text-shadow: 0 1px 12px rgba(0,0,0,.55);
@@ -416,6 +421,22 @@ body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
 }
 .practice-row[aria-pressed="true"] .name { color: var(--gold); }
 .practice-row .tag { font-size: .85rem; color: var(--ink-soft); }
+.own-music {
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.own-music p { font-size: .85rem; color: var(--ink-soft); }
+.music-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-top: 8px; }
+.music-link, .own-music-toggle {
+  background: none; border: 0; padding: 3px 0; cursor: pointer;
+  font-family: var(--sans); font-size: .8rem; color: var(--ink-faint);
+  text-decoration: none;
+}
+.music-link[hidden] { display: none; }
+.music-link:hover, .music-link:focus-visible,
+.own-music-toggle:hover, .own-music-toggle:focus-visible {
+  color: var(--ink); text-decoration: underline; outline: none;
+}
 /* Every practice's minute dial: a scroll-snapped row of numbers, the centred one
    being the choice. The mask fades the ends so it reads as a wheel that
    continues past the edges rather than a list that stops. */
@@ -510,8 +531,9 @@ body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
 .shore-stats div span { font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
 .shore-line { margin-top: 12px; font-size: .93rem; color: var(--ink-soft); }
 .shore-line b { color: var(--gold); font-weight: 550; }
-.shore-foot { margin-top: 18px; display: flex; justify-content: space-between; align-items: baseline; }
+.shore-foot { margin-top: 18px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 18px; }
 .shore-foot a { color: var(--ink-faint); font-size: .78rem; text-decoration: none; }
+.shore-foot a:hover, .shore-foot a:focus-visible { color: var(--ink-soft); text-decoration: underline; }
 .reset { background: none; border: 0; cursor: pointer; font-family: var(--sans);
   font-size: .78rem; color: var(--ink-faint); padding: 0; }
 

@@ -333,6 +333,92 @@ export class Bloom {
     ctx.restore();
   }
 
+  // Paddle's canoe: a low silhouette crossing the water. Position and
+  // motion live in app.js; this layer only paints the hull, paddler, wake,
+  // and the brief blade dip after a stroke.
+  drawCanoe(state) {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const u = Math.min(W, H);
+    const x = Math.max(0, Math.min(1, state.x));
+    const edgeFade = Math.max(0, Math.min(1, (x - 0.08) / 0.04, (0.92 - x) / 0.04));
+    if (!edgeFade || !u) return;
+
+    const length = u * 0.16;
+    const bob = (Math.max(0, Math.min(1, state.bob)) - 0.5) * u * 0.008;
+    const stroke = Math.max(0, Math.min(1, state.stroke));
+    const warm = this.colorA, cool = this.colorB;
+    const cx = x * W, cy = state.y * H + bob;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(state.heading < 0 ? -1 : 1, 1);
+    ctx.globalAlpha = edgeFade;
+
+    // A wake stays close to the hull and brightens only briefly after the
+    // blade enters the water.
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(0.7, this.dpr * 0.75);
+    const coolWake = ctx.createLinearGradient(-length * 1.35, 0, -length * 0.25, 0);
+    coolWake.addColorStop(0, `rgba(${cool[0]},${cool[1]},${cool[2]},0)`);
+    coolWake.addColorStop(1, `rgba(${cool[0]},${cool[1]},${cool[2]},${0.07 + stroke * 0.10})`);
+    ctx.strokeStyle = coolWake;
+    ctx.beginPath();
+    ctx.moveTo(-length * 0.34, u * 0.012);
+    ctx.quadraticCurveTo(-length * 0.78, u * 0.006, -length * (1.05 + stroke * 0.30), u * 0.021);
+    ctx.stroke();
+    const warmWake = ctx.createLinearGradient(-length * 1.1, 0, -length * 0.20, 0);
+    warmWake.addColorStop(0, `rgba(${warm[0]},${warm[1]},${warm[2]},0)`);
+    warmWake.addColorStop(1, `rgba(${warm[0]},${warm[1]},${warm[2]},${0.035 + stroke * 0.055})`);
+    ctx.strokeStyle = warmWake;
+    ctx.beginPath();
+    ctx.moveTo(-length * 0.28, u * 0.020);
+    ctx.quadraticCurveTo(-length * 0.65, u * 0.029, -length * (0.86 + stroke * 0.22), u * 0.035);
+    ctx.stroke();
+
+    // Dark, side-on hull with a low palette reflection along its upper lip.
+    ctx.fillStyle = 'rgba(8, 11, 16, 0.76)';
+    ctx.beginPath();
+    ctx.moveTo(-length * 0.52, -u * 0.010);
+    ctx.quadraticCurveTo(-length * 0.26, u * 0.037, length * 0.31, u * 0.030);
+    ctx.quadraticCurveTo(length * 0.48, u * 0.020, length * 0.53, -u * 0.008);
+    ctx.quadraticCurveTo(0, u * 0.005, -length * 0.52, -u * 0.010);
+    ctx.fill();
+    ctx.fillStyle = `rgba(${warm[0]},${warm[1]},${warm[2]},0.075)`;
+    ctx.beginPath();
+    ctx.ellipse(0, -u * 0.004, length * 0.46, u * 0.006, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // One small joined silhouette is enough to suggest the paddler.
+    ctx.fillStyle = 'rgba(9, 11, 15, 0.70)';
+    ctx.beginPath();
+    ctx.arc(length * 0.05, -u * 0.072, u * 0.012, 0, Math.PI * 2);
+    ctx.moveTo(length * 0.005, -u * 0.052);
+    ctx.quadraticCurveTo(length * 0.04, -u * 0.078, length * 0.14, -u * 0.018);
+    ctx.lineTo(length * 0.02, -u * 0.012);
+    ctx.closePath();
+    ctx.fill();
+
+    if (stroke > 0.01) {
+      ctx.save();
+      ctx.translate(length * 0.08, -u * 0.042);
+      ctx.rotate(-0.72 + (1 - stroke) * 0.42);
+      ctx.strokeStyle = `rgba(8, 11, 16, ${0.30 + stroke * 0.40})`;
+      ctx.lineWidth = Math.max(1, this.dpr * 1.15);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, u * 0.125);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(${cool[0]},${cool[1]},${cool[2]},${0.08 + stroke * 0.16})`;
+      ctx.beginPath();
+      ctx.ellipse(0, u * 0.135, u * 0.010, u * 0.026, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
   show(on) { this.presenceTarget = on ? 1 : 0; }
 
   release() {

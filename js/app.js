@@ -12,7 +12,7 @@ import {
 } from './engine.js';
 import {
   presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
-  MANTRAS, NOTE_EXAMPLES, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
+  MANTRAS, MUSIC, NOTE_EXAMPLES, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
 } from './content.js';
 import * as sound from './sound.js';
 import * as haptics from './haptics.js';
@@ -36,6 +36,7 @@ const LEGACY_SIT_KEY = 'lakebreath-sit-mins';
 const MINS_KEY = 'lakebreath-mins-';
 const FORECAST_KEY = 'lakebreath-forecast';
 const EMBLEM_KEY = 'lakebreath-event-emblem';
+const OWN_MUSIC_KEY = 'lakebreath-own-music';
 const STILL_GLASS = 0.12; // churn below this = the water reads as glass
 
 // Steady's geometry, in units of min(canvasW, canvasH) so it means the
@@ -70,6 +71,26 @@ function storedBool(key, fallback) {
 }
 let forecastOn = storedBool(FORECAST_KEY, true);
 let emblemOn = storedBool(EMBLEM_KEY, true);
+let ownMusic = storedBool(OWN_MUSIC_KEY, false);
+sound.setOwnMusicMode(ownMusic);
+if (ownMusic) sound.setSoundEnabled(false);
+
+function showSoundState() {
+  const on = sound.soundEnabled();
+  for (const id of ['sound-toggle', 'session-sound']) {
+    const btn = $(id);
+    if (!btn) continue;
+    btn.textContent = on ? 'sound on' : 'sound off';
+    btn.setAttribute('aria-pressed', String(on));
+  }
+}
+
+function toggleSound() {
+  const on = !sound.soundEnabled();
+  sound.setSoundEnabled(on);
+  if (on) sound.unlock();
+  showSoundState();
+}
 
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* fine */ }
@@ -445,6 +466,9 @@ async function startSessionInner({ town: isTown = false } = {}) {
     toast('Steady needs a motion sensor. This device did not offer one.');
     return;
   }
+  sound.setOwnMusicMode(ownMusic);
+  if (ownMusic) sound.setSoundEnabled(false);
+  showSoundState();
   sound.unlock();
   // "Again" can start a new sit while the last gong is still ringing its
   // twelve second tail. The new session gets its own silence.
@@ -467,6 +491,7 @@ async function startSessionInner({ town: isTown = false } = {}) {
     // Paddle: taps come in from the window listener and are judged as they
     // land, against the cadence current at that moment.
     paddle: freshPaddle(), lastTap: 0,
+    canoe: tech.kind === 'paddle' ? { x: 0.18, v: 0, stroke: 0, crossings: 0 } : null,
     presenceTimer: setInterval(async () => {
       const n = await net.beat();
       if (session) $('presence-live').textContent = presenceLine(n ?? 0) || '';
@@ -486,10 +511,10 @@ async function startSessionInner({ town: isTown = false } = {}) {
       : tech.steps ? PORCH_INTRO
       : tech.kind === 'timer' ? 'The lake keeps time. Sit however you like.'
       : tech.kind === 'still' ? 'Hold the phone flat or upright. Keep the light centered.'
-      : tech.kind === 'paddle' ? 'Tap the water at your own steady pace. Like paddle strokes. Keep the rhythm; let your mind go where it wants.'
+      : tech.kind === 'paddle' ? 'Each stroke moves the canoe. Keep a slow rhythm; let your mind go where it wants.'
       : '';
   $('session-instruction').textContent = tech.kind === 'paddle'
-    ? 'Tap the water like a paddle stroke. Find a slow, steady rhythm.'
+    ? 'Each stroke moves the canoe. Find a slow, steady rhythm.'
     : isBreathing && steadyReady
       ? 'Breathe with the words. Keep the light centered. Tap the water like a paddle.'
       : isBreathing
@@ -576,8 +601,17 @@ function sessionFrame(nowP) {
   }
 
   if (s.tech.kind === 'paddle') {
-    // Paddle counts nothing per frame; taps arrive from the window
-    // listener. The water just keeps breathing on its own underneath.
+    const canoe = s.canoe;
+    canoe.x += canoe.v * dt;
+    canoe.v *= Math.exp(-1.15 * dt);
+    if (canoe.v < 0.0005) canoe.v = 0;
+    canoe.stroke = Math.max(0, canoe.stroke - dt / 0.8);
+    if (canoe.x > 0.92) {
+      canoe.x = 0.08;
+      canoe.crossings += 1;
+    }
+    // Taps arrive from the window listener. The water keeps breathing on
+    // its own underneath while each impulse settles into a glide.
     updateRemaining(t, s);
     return { breath: idleBreath(), churn: steadyChurn };
   }
@@ -622,6 +656,10 @@ function paddleTap(xUv, yUv) {
   // a tap above the waterline still lands ON the water, just below itself:
   // the stroke has to leave a mark or the practice has no answer
   scene.ripple(xUv, Math.max(HORIZON + 0.02, yUv), 1);
+  if (s.canoe) {
+    s.canoe.v = Math.min(0.14, s.canoe.v + 0.035);
+    s.canoe.stroke = 1;
+  }
   sound.stroke();
   $('tap-line').textContent = tapLine(s.paddle);
 }
@@ -680,6 +718,12 @@ function paddleReceipt(tally, last) {
   const lines = [`You kept ${tally.onRhythm} of ${n} strokes on rhythm. Longest run: ${tally.longestRun}.`];
   if (last) lines.push(`Last time: ${last.onRhythm} of ${judged(last)}, longest run ${last.longestRun}.`);
   return lines.join(' ');
+}
+
+function canoeReceipt(n) {
+  if (n === 1) return 'You crossed the lake once.';
+  if (n === 2) return 'You crossed the lake twice.';
+  return `You crossed the lake ${n} times.`;
 }
 
 // One good thing from the neighborhood, on the end screen, in the slot the
@@ -752,6 +796,7 @@ function finishSession(completed) {
   else if (tally.strokes > 1) {
     receipt.push(`You made ${tally.strokes} paddle strokes. ${tally.onRhythm} of ${tally.judgedGaps} gaps stayed near your rhythm.`);
   }
+  if (s.canoe?.crossings) receipt.push(canoeReceipt(s.canoe.crossings));
   if (practicedSec >= 30 && s.steadyOn && s.key !== 'still') receipt.push(steadyFact(s.drifts));
   $('end-sub').textContent = receipt.join(' ');
   $('end-grow').textContent =
@@ -993,6 +1038,9 @@ function loop(nowP) {
   const emblemVisible = emblemOn && anchorNow && !session && document.body.dataset.view === 'front';
   if (emblemVisible) bloom.drawEventEmblem(anchorNow.kind, breathSmooth, 1 - st.night * 0.32);
   if (bubble) bloom.drawBubble(bubble); // Steady's focus object
+  if (session?.tech.kind === 'paddle' && session.canoe) {
+    bloom.drawCanoe({ ...session.canoe, y: 0.70, heading: 1, bob: breathSmooth });
+  }
   // warm-night fireflies; a steady breath draws them toward the bloom
   const flyNight = st.night > 0.55 && (st._season === 'summer' || st._season === 'spring' || st._season === 'foliage');
   bloom.drawFireflies(flyNight, session && !session.tech.steps ? 0.9 : 0.15, dt);
@@ -1048,6 +1096,10 @@ function wire() {
     s.steadyOn = true;
     $('session-steady').textContent = 'steady on';
   });
+  $('session-sound').addEventListener('click', () => {
+    wakeQuietTimer();
+    toggleSound();
+  });
   $('end-done').addEventListener('click', () => {
     clearTimeout(finishSession._anchorT);
     bloom.show(true); // the hero returns home with you
@@ -1102,13 +1154,8 @@ function wire() {
 
   // Scene and sound toggles live together in the top links.
   const sBtn = document.createElement('button');
-  sBtn.className = 'tbtn'; sBtn.textContent = 'sound on';
-  sBtn.addEventListener('click', () => {
-    const on = !sound.soundEnabled();
-    sound.setSoundEnabled(on);
-    if (on) sound.unlock();
-    sBtn.textContent = on ? 'sound on' : 'sound off';
-  });
+  sBtn.id = 'sound-toggle'; sBtn.className = 'tbtn';
+  sBtn.addEventListener('click', toggleSound);
   const fBtn = document.createElement('button');
   fBtn.className = 'tbtn';
   const showForecastState = () => {
@@ -1135,6 +1182,31 @@ function wire() {
     showEmblemState();
   });
   document.querySelector('.toplinks').prepend(sBtn, fBtn, eBtn);
+  showSoundState();
+
+  const musicLinks = [
+    [$('music-spotify'), MUSIC.spotify],
+    [$('music-youtube'), MUSIC.youtube],
+  ];
+  for (const [link, url] of musicLinks) {
+    if (!url) continue;
+    link.href = url;
+    link.hidden = false;
+  }
+  const ownMusicBtn = $('own-music-toggle');
+  const showOwnMusicState = () => {
+    ownMusicBtn.textContent = `your music: ${ownMusic ? 'on' : 'off'}`;
+    ownMusicBtn.setAttribute('aria-pressed', String(ownMusic));
+  };
+  showOwnMusicState();
+  ownMusicBtn.addEventListener('click', () => {
+    ownMusic = !ownMusic;
+    try { localStorage.setItem(OWN_MUSIC_KEY, ownMusic ? '1' : '0'); } catch { /* fine */ }
+    sound.setOwnMusicMode(ownMusic);
+    if (ownMusic) sound.setSoundEnabled(false);
+    showOwnMusicState();
+    showSoundState();
+  });
 
   // touching the water makes ripples: your hand moves the world. During
   // Paddle every tap anywhere is a stroke, except taps on real controls
