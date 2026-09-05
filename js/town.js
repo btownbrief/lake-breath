@@ -227,6 +227,40 @@ export function anchorEvent(nowMs = Date.now()) {
   return best;
 }
 
+// ------------------------------------------------------- sunset watch
+
+// Stephen gathers neighbors to watch a sunset together (his Meetup group).
+// When one is coming inside a week it shows in the app: the rail's picks
+// carry his events, and calendar.json can carry one by hand. Nothing is
+// invented: no matching event, no line.
+export function sunsetGathering(nowMs = Date.now()) {
+  const soon = nowMs + 7 * 86400000;
+  let best = null;
+  const consider = (title, venue, whenMs, url) => {
+    if (!title || !/sunset/i.test(title)) return;
+    if (!Number.isFinite(whenMs) || whenMs < nowMs - 2 * 3600000 || whenMs > soon) return;
+    if (!best || whenMs < best.whenMs) best = { title: String(title).trim(), venue: venue ? String(venue).trim() : '', whenMs, url: url || '' };
+  };
+  const days = store.rail?.days;
+  if (Array.isArray(days)) {
+    for (const d of days) {
+      for (const p of (d && Array.isArray(d.picks)) ? d.picks : []) {
+        const ms = Date.parse(p && p.s && p.s.length > 10 ? p.s : '');
+        consider(p && p.t, p && p.v, ms, p && p.u);
+      }
+    }
+  }
+  const cal = store.calendar;
+  if (Array.isArray(cal)) {
+    for (const e of cal) {
+      if (!e || e.hidden) continue;
+      const ms = Date.parse(`${String(e.date || '').slice(0, 10)}T19:30:00-04:00`);
+      consider(e.name, e.note, ms, e.link);
+    }
+  }
+  return best;
+}
+
 // ------------------------------------------------------------ good news
 
 // One neighborhood link, the same one for everybody in town all day.

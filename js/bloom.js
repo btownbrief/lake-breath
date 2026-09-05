@@ -129,53 +129,6 @@ export class Bloom {
   // The next anchor appears as a breathing emblem in the cloud field. The
   // jester cap is reserved for Festival of Fools; other anchors use one
   // small compass-star pennant. No event words enter the home screen.
-  drawEventEmblem(kind, breath, dim = 1) {
-    const ctx = this.ctx;
-    const W = this.canvas.width, H = this.canvas.height;
-    const base = Math.min(W, H) / 400;
-    const scale = 0.88 + breath * 0.78;
-    const u = base * scale;
-    const cx = W * 0.71, cy = H * 0.285;
-    const GOLD = [238, 199, 116], VIOLET = [157, 119, 207];
-    const rgba = (c, a) => `rgba(${Math.round(c[0] * dim)},${Math.round(c[1] * dim)},${Math.round(c[2] * dim)},${a})`;
-    const sway = Math.sin(performance.now() / 1200) * 2.2 * u;
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 34 * u);
-    glow.addColorStop(0, rgba(kind === 'fools' ? VIOLET : GOLD, 0.22));
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(cx, cy, 34 * u, 0, Math.PI * 2); ctx.fill();
-    if (kind === 'fools') {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = rgba(GOLD, 0.82);
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 7 * u, 19 * u, 5.5 * u, 0, 0, Math.PI * 2);
-      ctx.fill();
-      this._jesterCap(cx, cy + 5 * u, u * 3.35, sway, rgba, GOLD, VIOLET);
-      ctx.fillStyle = rgba([244, 220, 174], 0.72);
-      ctx.beginPath(); ctx.arc(cx, cy + 15 * u, 8.2 * u, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = rgba(VIOLET, 0.82);
-      ctx.beginPath(); ctx.arc(cx - 2.6 * u, cy + 14 * u, 0.9 * u, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx + 2.6 * u, cy + 14 * u, 0.9 * u, 0, Math.PI * 2); ctx.fill();
-    } else {
-      ctx.translate(cx, cy); ctx.rotate(Math.PI / 4 + sway * 0.006);
-      ctx.fillStyle = rgba(GOLD, 0.84);
-      ctx.beginPath();
-      ctx.moveTo(0, -18 * u); ctx.lineTo(5 * u, -5 * u);
-      ctx.lineTo(18 * u, 0); ctx.lineTo(5 * u, 5 * u);
-      ctx.lineTo(0, 18 * u); ctx.lineTo(-5 * u, 5 * u);
-      ctx.lineTo(-18 * u, 0); ctx.lineTo(-5 * u, -5 * u);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = 'rgba(255, 250, 236, 0.72)';
-      ctx.beginPath(); ctx.arc(0, 0, 3.2 * u, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  // The maple on your shore — the growing thing. A quiet silhouette on a
-  // spit of land at the right edge of the water, filling in with practice.
-  // stage 0..11 from engine.mapleStage; leafColor follows the season.
   drawMaple(stage, maxStage, leafRgb) {
     const ctx = this.ctx;
     const W = this.canvas.width, H = this.canvas.height;
@@ -223,81 +176,6 @@ export class Bloom {
   // one pennant swapped for a jester cap; anything else gets plain gold.
   // dim follows the maple so the night puts it away too. Deliberately
   // tiny: this should read as a flag on a shore, never as clipart.
-  drawPennants(kind, dim = 1) {
-    const ctx = this.ctx;
-    const W = this.canvas.width, H = this.canvas.height;
-    const hy = H * (this.horizonY ?? 0.6);
-    const u = Math.min(W, H) / 400;
-    const baseX = W * 0.755, baseY = hy + 3 * u;
-    const poleH = 30 * u, lean = 3.4 * u;
-    const tipX = baseX + lean, tipY = baseY - poleH;
-    const t = performance.now() / 1400;
-    const fools = kind === 'fools';
-    const GOLD = [230, 188, 108], VIOLET = [150, 112, 196];
-    const rgba = (c, a) => `rgba(${Math.round(c[0] * dim)},${Math.round(c[1] * dim)},${Math.round(c[2] * dim)},${a})`;
-
-    ctx.save();
-    ctx.strokeStyle = `rgba(${Math.round(18 * dim)},${Math.round(16 * dim)},${Math.round(16 * dim)},0.9)`;
-    ctx.lineWidth = Math.max(1, 1.1 * u);
-    ctx.beginPath();
-    ctx.moveTo(baseX, baseY);
-    ctx.lineTo(tipX, tipY);
-    ctx.stroke();
-
-    // three flags down the pole, the top one nearest the tip
-    for (let i = 0; i < 3; i++) {
-      const f = 0.10 + i * 0.26;                       // how far down the pole
-      const px = tipX + (baseX - tipX) * f;
-      const py = tipY + (baseY - tipY) * f;
-      const sway = Math.sin(t + i * 0.8) * 1.6 * u;
-      const len = (9 - i * 0.8) * u, h = 5.2 * u;
-      // the top flag is the one that becomes a cap: crowning the pole reads
-      // as a shape, where a cap tucked between two flags reads as a smudge
-      if (fools && i === 0) { this._jesterCap(tipX, tipY, u, sway, rgba, GOLD, VIOLET); continue; }
-      const col = fools && i === 2 ? VIOLET : GOLD;
-      ctx.fillStyle = rgba(col, 0.82);
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.quadraticCurveTo(px + len * 0.6 + sway * 0.5, py + h * 0.18, px + len + sway, py + h * 0.5);
-      ctx.lineTo(px, py + h);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  // The jester cap: a small band with three slim points, each ending in a
-  // dot, about fourteen pixels across. Drawn as separate spikes rather than
-  // one filled shape because at this size a solid triangle is just a smudge.
-  _jesterCap(px, py, u, sway, rgba, gold, violet) {
-    const ctx = this.ctx;
-    const bx = px, by = py + 0.6 * u;
-    // three points fanning up from the pole's tip, each with a dot on it
-    const spikes = [[-2.35, 7.6, violet], [-1.57, 8.6, gold], [-0.78, 7.6, violet]];
-    for (const [ang, len, col] of spikes) {
-      const wob = sway * 0.25;
-      const tx = bx + Math.cos(ang) * len * u + wob;
-      const ty = by + Math.sin(ang) * len * u;
-      const nx = Math.cos(ang + Math.PI / 2) * 1.3 * u;
-      const ny = Math.sin(ang + Math.PI / 2) * 1.3 * u;
-      ctx.fillStyle = rgba(col, 0.85);
-      ctx.beginPath();
-      ctx.moveTo(bx + nx, by + ny);
-      ctx.lineTo(tx, ty);
-      ctx.lineTo(bx - nx, by - ny);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(tx, ty, Math.max(0.9, 1.25 * u), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Steady's bubble: a spirit level drawn as light. bub.x / bub.y / bub.r
-  // are in units of min(W, H) from the screen centre, so the caller does
-  // the physics and this only paints. Inside the ring the ring warms to
-  // gold and the bubble takes the warm palette colour; outside, both go
-  // cool and quiet. No red, no buzzing, nothing that reads as failure.
   drawBubble(bub) {
     const ctx = this.ctx;
     const W = this.canvas.width, H = this.canvas.height;
@@ -309,7 +187,31 @@ export class Bloom {
     // centre on a table is not home, and the picture should say so.
     const warm = bub.inRing && !bub.resting;
     const dim = bub.resting ? 0.45 : 1;
+    // Doing well, shown without a number: the longer the light has been
+    // home in a hand, the wider and warmer its halo (bub.calm 0..1), and
+    // every half minute home a slow ring leaves the bubble and crosses
+    // the water. Nothing dims, nothing scolds; the picture just warms.
+    const calm = Math.max(0, Math.min(1, bub.calm || 0));
     ctx.save();
+    if (calm > 0.01) {
+      ctx.globalCompositeOperation = 'screen';
+      const hr = u * (0.09 + calm * 0.16);
+      const hg = ctx.createRadialGradient(bx, by, u * 0.03, bx, by, hr);
+      hg.addColorStop(0, `rgba(${this.colorA[0]},${this.colorA[1]},${this.colorA[2]},${0.10 + calm * 0.16})`);
+      hg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = hg;
+      ctx.beginPath(); ctx.arc(bx, by, hr, 0, Math.PI * 2); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    const nowS = performance.now() / 1000;
+    this.calmRings = (this.calmRings || []).filter((r) => nowS - r.t0 < 4);
+    for (const r of this.calmRings) {
+      const age = (nowS - r.t0) / 4;
+      const rr = ringR + age * u * 0.55;
+      ctx.strokeStyle = `rgba(240, 205, 140, ${0.30 * (1 - age) * (1 - age)})`;
+      ctx.lineWidth = 1.2 * this.dpr;
+      ctx.beginPath(); ctx.arc(bx, by, rr, 0, Math.PI * 2); ctx.stroke();
+    }
     // the target ring
     ctx.strokeStyle = warm
       ? 'rgba(240, 205, 140, 0.42)'
@@ -421,6 +323,10 @@ export class Bloom {
 
     ctx.restore();
   }
+
+  // One slow ring from the bubble, called by the owner every half minute
+  // the light stays home.
+  calmRing() { (this.calmRings = this.calmRings || []).push({ t0: performance.now() / 1000 }); }
 
   show(on) { this.presenceTarget = on ? 1 : 0; }
 

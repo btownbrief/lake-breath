@@ -72,6 +72,17 @@ export const TECHNIQUES = {
     durations: [180, 300],
     defaultDuration: 180,
   },
+  liedown: {
+    name: 'Lie Down',
+    tag: 'phone on your belly, the lake breathes with you',
+    // Not a pacer either: lie on your back with the phone flat on your
+    // belly, and the belly's rise tilts the phone a few degrees per
+    // breath. The lake follows that instead of counting. No mic, no
+    // camera; the same accelerometer Steady uses. Needs DeviceMotion.
+    kind: 'breathfollow',
+    durations: [300, 600],
+    defaultDuration: 300,
+  },
   porch: {
     name: 'Front Porch',
     tag: 'eyes open, no breath counting',
@@ -286,6 +297,47 @@ export function restingPhrase(sec) {
   const n = Math.round(sec || 0);
   if (n < 10) return '';
   return `The phone rested on something for ${n} seconds. Only time in a hand counts.`;
+}
+
+// ------------------------------------------------------------ lie down
+
+// Lie Down's accounting, pure like Steady's. Per tick: the breath level
+// the sensor read (0..1 inside its envelope), whether it was confident,
+// and dt. Followed time counts only while a breath can actually be read;
+// breaths are counted on the upward crossing of the middle, with a floor
+// of two seconds between counts so a wobble is never a breath.
+export const BREATH_MIN_GAP_SEC = 2;
+
+export function freshBreathFollow() {
+  return { followedSec: 0, breaths: 0, lostSec: 0, above: false, sinceBreath: 99 };
+}
+
+export function breathFollowStep(state, { level, confident, dt }) {
+  const s = { ...state };
+  const step = Math.max(0, Math.min(0.25, dt || 0));
+  s.sinceBreath += step;
+  if (!confident) {
+    s.lostSec += step;
+    s.above = false;
+    return s;
+  }
+  s.followedSec += step;
+  const up = level > 0.6, down = level < 0.4;
+  if (!s.above && up) {
+    s.above = true;
+    if (s.sinceBreath >= BREATH_MIN_GAP_SEC) { s.breaths += 1; s.sinceBreath = 0; }
+  } else if (s.above && down) {
+    s.above = false;
+  }
+  return s;
+}
+
+export function breathFollowPhrase(st, practicedSec) {
+  if (!st || st.followedSec < 20) return 'The lake could not feel a breath. The phone wants to lie flat on your belly.';
+  const mins = st.followedSec / 60;
+  const rate = mins > 0.5 ? Math.round(st.breaths / mins) : 0;
+  const followed = st.followedSec >= (practicedSec || 0) * 0.9 ? 'the whole time' : `for ${Math.round(st.followedSec / 60)} of ${Math.round((practicedSec || 0) / 60)} minutes`;
+  return rate ? `The lake breathed with you ${followed}, about ${rate} a minute.` : `The lake breathed with you ${followed}.`;
 }
 
 // Shared receipt line for the two attention practices. Counting is fine;
