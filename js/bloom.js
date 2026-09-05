@@ -305,7 +305,10 @@ export class Bloom {
     const cx = W * 0.5, cy = H * 0.5;
     const bx = cx + bub.x * u, by = cy + bub.y * u;
     const ringR = bub.r * u;
-    const warm = bub.inRing;
+    // resting on a surface: the ring goes cold and the bubble dims. Dead
+    // centre on a table is not home, and the picture should say so.
+    const warm = bub.inRing && !bub.resting;
+    const dim = bub.resting ? 0.45 : 1;
     ctx.save();
     // the target ring
     ctx.strokeStyle = warm
@@ -320,14 +323,14 @@ export class Bloom {
     const col = warm ? this.colorA : this.colorB;
     const r = u * 0.052;
     const g = ctx.createRadialGradient(bx, by, 0, bx, by, r * 2.2);
-    g.addColorStop(0, `rgba(255, 252, 244, ${warm ? 0.72 : 0.5})`);
-    g.addColorStop(0.35, `rgba(${col[0]},${col[1]},${col[2]},${warm ? 0.42 : 0.3})`);
+    g.addColorStop(0, `rgba(255, 252, 244, ${(warm ? 0.72 : 0.5) * dim})`);
+    g.addColorStop(0.35, `rgba(${col[0]},${col[1]},${col[2]},${(warm ? 0.42 : 0.3) * dim})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(bx, by, r * 2.2, 0, Math.PI * 2); ctx.fill();
     // a thin meniscus edge so it reads as a bubble, not a blur
     ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = `rgba(255, 252, 244, ${warm ? 0.34 : 0.22})`;
+    ctx.strokeStyle = `rgba(255, 252, 244, ${(warm ? 0.34 : 0.22) * dim})`;
     ctx.lineWidth = 1 * this.dpr;
     ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();

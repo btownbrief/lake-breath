@@ -11,7 +11,7 @@ import {
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
   presenceId, presenceLine,
   PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence,
-  freshPaddle, paddleStroke, freshSteady, steadyStep,
+  freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase,
   driftPhrase,
 } from '../js/engine.js';
 
@@ -440,4 +440,51 @@ test('presence copy is honest at every count', () => {
   assert.equal(presenceLine(0), null);
   assert.equal(presenceLine(1), '1 neighbor is breathing with you');
   assert.equal(presenceLine(7), '7 neighbors are breathing with you');
+});
+
+// ---------------------------------------------- Steady: a hand, not a table
+
+test('a phone set down earns nothing, drifts nothing, and is tallied as rest', () => {
+  // dead centre, perfect pose, glassy calm: exactly what a table looks like
+  const table = { inRing: true, flat: 1, churn: 0, held: false };
+  const s = steadyRun(freshSteady(), 45, table);
+  assert.equal(s.centeredSec, 0);
+  assert.equal(s.drifts, 0);
+  assert.ok(Math.abs(s.restingSec - 45) < 0.2);
+  // same readings in a hand count in full
+  const hand = steadyRun(freshSteady(), 45, { ...table, held: true });
+  assert.ok(Math.abs(hand.centeredSec - 45) < 0.2);
+  assert.equal(hand.restingSec, 0);
+});
+
+test('held defaults to true so sensors that cannot tell still count', () => {
+  const s = steadyRun(freshSteady(), 10, { inRing: true, flat: 0.9, churn: 0.02 });
+  assert.ok(s.centeredSec > 9.5);
+});
+
+test('setting the phone down mid-away is not a drift, and pickup starts clean', () => {
+  let s = steadyRun(freshSteady(), 3, { inRing: true, flat: 0.9, churn: 0.02 });
+  s = steadyRun(s, 0.6, { inRing: false, flat: 0.9, churn: 0.1 });   // wandered, under a second
+  s = steadyRun(s, 20, { inRing: true, flat: 1, churn: 0, held: false }); // put down
+  assert.equal(s.drifts, 0);
+  assert.equal(s.awaySec, 0);
+  s = steadyRun(s, 0.6, { inRing: false, flat: 0.9, churn: 0.1 });   // picked up, wandering again
+  assert.equal(s.drifts, 0, 'the away clock did not carry across the rest');
+  s = steadyRun(s, 0.6, { inRing: false, flat: 0.9, churn: 0.1 });
+  assert.equal(s.drifts, 1, 'a full second away in hand still counts');
+});
+
+test('recentering forgives an away in progress and never counts as a drift', () => {
+  let s = steadyRun(freshSteady(), 3, { inRing: true, flat: 0.9, churn: 0.02 });
+  s = steadyRun(s, 0.9, { inRing: false, flat: 0.9, churn: 0.1 });
+  s = steadyRecenter(s);
+  s = steadyRun(s, 0.9, { inRing: false, flat: 0.9, churn: 0.1 });
+  assert.equal(s.drifts, 0, 'two sub-second aways around a recenter never add up');
+  assert.ok(Math.abs(s.centeredSec - 3) < 0.2, 'recentering keeps what was earned');
+});
+
+test('resting phrase is a plain fact, and silent under ten seconds', () => {
+  assert.equal(restingPhrase(0), '');
+  assert.equal(restingPhrase(9.4), '');
+  assert.equal(restingPhrase(42.4), 'The phone rested on something for 42 seconds. Only time in a hand counts.');
 });

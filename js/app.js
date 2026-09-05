@@ -8,7 +8,7 @@ import {
   townState, TOWN,
   seasonFor, skyPhase, nyParts, nyMonthKey, dailyIndex,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
-  presenceLine, freshPaddle, paddleStroke, freshSteady, steadyStep, driftPhrase,
+  presenceLine, freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase, driftPhrase,
 } from './engine.js';
 import {
   presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
@@ -20,6 +20,7 @@ import * as net from './net.js';
 import * as still from './stillness.js';
 import * as town from './town.js';
 import { LakeScene, palette, celestial } from './scene-gl.js';
+import { pickPhoto, loadPhoto } from './photos.js';
 import { Bloom } from './bloom.js';
 
 const $ = (id) => document.getElementById(id);
@@ -104,6 +105,21 @@ const HORIZON = 0.60;
 // Ambient scene state is cached per minute. Intl date math and palette
 // blending are far too expensive to run per frame on a phone.
 let ambCache = { key: '', st: null };
+// The real sky now showing (or loading). Photos are chosen per phase per
+// Burlington day; the scene crossfades when the pick changes.
+let photoWant = null;   // the entry sceneState last asked for
+let photoHave = null;   // {img, entry, colors} once loaded, or null
+function wantPhoto(entry) {
+  if ((entry?.file || null) === (photoWant?.file || null)) return;
+  photoWant = entry;
+  if (!entry) { photoHave = null; scene.setPhoto(null); ambCache.key = ''; return; }
+  loadPhoto(entry).then((loaded) => {
+    if (photoWant !== entry) return; // the sky moved on while this loaded
+    photoHave = loaded;
+    scene.setPhoto(loaded);
+    ambCache.key = ''; // the palette follows the photo now
+  });
+}
 function sceneState(nowMs, breath, churn) {
   const key = `${Math.floor(nowMs / 60000)}:${forecastOn}`;
   if (ambCache.key !== key) {
@@ -117,13 +133,25 @@ function sceneState(nowMs, breath, churn) {
       : (phaseNow === 'dawn' || phaseNow === 'dusk' || phaseNow === 'golden') ? 0.78
       : 1;
     const tintWeather = tomorrow ? { ...tomorrow, deltaF: tomorrow.deltaF * tintScale } : null;
-    const pal = town.tintPalette(palette(phaseNow, phaseSoon, blend, season), tintWeather);
+    wantPhoto(pickPhoto(phaseNow, season, dailyIndex(nowMs, 97)));
+    let base = palette(phaseNow, phaseSoon, blend, season);
+    const pc = photoHave && photoHave.entry === photoWant ? photoHave.colors : null;
+    if (pc) {
+      // the water and the bloom take their colours off the photograph, so
+      // the painted half of the scene belongs to the same evening
+      const dark = (c, k) => c.map((v) => v * k);
+      base = { ...base, skyTop: pc.skyTop, skyLow: pc.skyLow, waterHi: dark(pc.skyLow, 0.55), waterLo: dark(pc.skyLow, 0.16) };
+    }
+    const pal = town.tintPalette(base, tintWeather);
+    // tomorrow's forecast lands on the photo as the same lean it gives the
+    // painted sky: tinted over untinted, per channel
+    const photoTint = base.skyLow.map((v, i) => Math.max(0.6, Math.min(1.5, (pal.skyLow[i] + 0.02) / (v + 0.02))));
     const night = phaseNow === 'night' ? 1 : (phaseSoon === 'night' ? blend : (phaseNow === 'dusk' || phaseNow === 'dawn' ? 0.3 : 0));
     const dayFrac = (p.hour * 60 + p.minute) / 1440;
     const cel = celestial(dayFrac, night);
     const weatherKind = forecastKind(tomorrow, p.month);
     ambCache = { key, st: {
-      night, horizon: HORIZON, ...pal, ...cel,
+      night, horizon: HORIZON, ...pal, ...cel, photoTint,
       clear: weatherKind === 'clear' ? 1 : 0,
       _weather: weatherKind, _phase: phaseNow, _season: season,
     } };
@@ -464,6 +492,7 @@ async function startSessionInner({ town: isTown = false } = {}) {
     // numbers below it are just what the meter lines read off.
     steady: freshSteady(),
     steadyReady, steadyOn: steadyReady,
+    restToldAt: 0, awayHintDone: false, awayRun: 0,
     // Paddle: taps come in from the window listener and are judged as they
     // land, against the cadence current at that moment.
     paddle: freshPaddle(), lastTap: 0,
@@ -485,7 +514,7 @@ async function startSessionInner({ town: isTown = false } = {}) {
     isTown ? 'The 8:02. The whole town, one clock'
       : tech.steps ? PORCH_INTRO
       : tech.kind === 'timer' ? 'The lake keeps time. Sit however you like.'
-      : tech.kind === 'still' ? 'Hold the phone flat or upright. Keep the light centered.'
+      : tech.kind === 'still' ? 'Hold the phone in your hand, flat or upright, and keep the light centered. A hand is never perfectly still. That is the point.'
       : tech.kind === 'paddle' ? 'Tap the water at your own steady pace. Like paddle strokes. Keep the rhythm; let your mind go where it wants.'
       : '';
   $('session-instruction').textContent = tech.kind === 'paddle'
@@ -501,6 +530,7 @@ async function startSessionInner({ town: isTown = false } = {}) {
   const steadyBtn = $('session-steady');
   steadyBtn.hidden = !steadyReady || tech.kind === 'still';
   steadyBtn.textContent = 'steady on';
+  $('session-recenter').hidden = !steadyReady;
   $('still-meter').textContent = '';
   $('drift-line').textContent = '';
   $('remaining').textContent = '';
@@ -529,13 +559,28 @@ function updateSteadyLayer(s, dt) {
   const bx = Math.max(-limX, Math.min(limX, tilt.x * STEADY_GAIN));
   const by = Math.max(-limY, Math.min(limY, -tilt.y * STEADY_GAIN));
   const inRing = Math.hypot(bx, by) <= STEADY_RING;
-  bubble = { x: bx, y: by, r: STEADY_RING, inRing };
-  s.steady = steadyStep(s.steady, { inRing, flat: tilt.flat, churn, dt });
+  const held = still.isHeld();
+  bubble = { x: bx, y: by, r: STEADY_RING, inRing, resting: !held };
+  s.steady = steadyStep(s.steady, { inRing, flat: tilt.flat, churn, held, dt });
   s.stillSec = s.steady.centeredSec;
   s.drifts = s.steady.drifts;
   if (s.key === 'still') {
-    $('still-meter').textContent = `home ${fmt(s.stillSec)}`;
-    $('drift-line').textContent = s.drifts ? `drifts: ${s.drifts}` : '';
+    $('still-meter').textContent = held ? `home ${fmt(s.stillSec)}` : 'Set down? Steady counts a hand, not a table.';
+    $('drift-line').textContent = held && s.drifts ? `drifts: ${s.drifts}` : '';
+  } else if (!held && !s.restToldAt) {
+    // the other practices get told once, quietly, the first time the phone
+    // reads as resting; the meter lines belong to Steady alone
+    s.restToldAt = performance.now();
+    toast('The phone is resting on something. Steady only counts a hand.');
+  }
+  // A hand that settled somewhere new sits off-centre forever unless told
+  // otherwise. Six seconds out of the ring, in hand, earns one pointer to
+  // the recenter button, per session.
+  s.awayRun = held && !inRing ? s.awayRun + dt : 0;
+  if (!s.awayHintDone && s.awayRun > 6) {
+    s.awayHintDone = true;
+    wakeQuietTimer();
+    toast('Comfortable where your hand is? Tap recenter and that becomes home.');
   }
   if (still.spiked()) {
     scene.ripple(0.3 + Math.random() * 0.4, HORIZON + 0.1 + Math.random() * 0.2, 0.8);
@@ -753,6 +798,7 @@ function finishSession(completed) {
     receipt.push(`You made ${tally.strokes} paddle strokes. ${tally.onRhythm} of ${tally.judgedGaps} gaps stayed near your rhythm.`);
   }
   if (practicedSec >= 30 && s.steadyOn && s.key !== 'still') receipt.push(steadyFact(s.drifts));
+  if (s.steadyOn) { const rest = restingPhrase(s.steady.restingSec); if (rest) receipt.push(rest); }
   $('end-sub').textContent = receipt.join(' ');
   $('end-grow').textContent =
     after.stage > before.stage ? 'Your maple grew.'
@@ -1032,6 +1078,15 @@ function wire() {
     openGuide();
   });
   $('stop').addEventListener('click', () => finishSession(false));
+  $('session-recenter').addEventListener('click', () => {
+    const s = session;
+    if (!s || !s.steadyOn) return;
+    still.recenter();
+    s.steady = steadyRecenter(s.steady);
+    s.awayRun = 0;
+    wakeQuietTimer();
+    toast('Home is here now.');
+  });
   $('session-steady').addEventListener('click', async () => {
     const s = session;
     if (!s) return;
@@ -1040,6 +1095,7 @@ function wire() {
       bubble = null;
       still.stop();
       $('session-steady').textContent = 'steady off';
+      $('session-recenter').hidden = true;
       return;
     }
     const ok = await still.start();
@@ -1047,6 +1103,7 @@ function wire() {
     if (!ok) { $('session-steady').hidden = true; return; }
     s.steadyOn = true;
     $('session-steady').textContent = 'steady on';
+    $('session-recenter').hidden = false;
   });
   $('end-done').addEventListener('click', () => {
     clearTimeout(finishSession._anchorT);

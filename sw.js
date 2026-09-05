@@ -3,7 +3,7 @@
 // own path or cache prefix (this origin is shared with the whole arcade).
 // Bump VERSION on every deploy; no skipWaiting so an update can never
 // swap files out from under a running session.
-const VERSION = 'lake-breath-v9';
+const VERSION = 'lake-breath-v10';
 // mod.html is deliberately absent: the back room never gets installed on
 // anybody's phone, and it should always be the live copy.
 const SHELL = [
@@ -12,7 +12,7 @@ const SHELL = [
   'css/style.css',
   'js/app.js', 'js/engine.js', 'js/content.js', 'js/sound.js',
   'js/haptics.js', 'js/net.js', 'js/leaderboard.js', 'js/town.js',
-  'js/scene-gl.js', 'js/bloom.js', 'js/stillness.js',
+  'js/scene-gl.js', 'js/bloom.js', 'js/stillness.js', 'js/photos.js',
   'assets/fonts/fraunces-normal-latin.woff2',
   'assets/fonts/fraunces-italic-latin.woff2',
   'assets/fonts/inter-normal-latin.woff2',

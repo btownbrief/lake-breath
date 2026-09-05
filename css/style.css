@@ -247,6 +247,7 @@ body[data-view="session"] .session-layer { opacity: 1; }
   font-size: .82rem; line-height: 1.4; color: var(--ink-soft);
   text-align: center; text-shadow: 0 1px 12px rgba(0,0,0,.55);
 }
+.session-buttons { display: flex; gap: 8px; }
 .session-steady {
   pointer-events: auto; cursor: pointer;
   background: rgba(7, 11, 17, .42); color: var(--ink-soft);

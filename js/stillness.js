@@ -3,9 +3,19 @@
 // first steady pose becomes home. Tilt sends the bubble wandering; motion
 // churns the lake underneath it.
 //
-// Two outputs:
+// Three outputs:
 //   getChurn() — smoothed 0..1 shake, 0 = held perfectly still (the lake)
 //   getTilt()  — smoothed {x, y} in g, roughly -1..1 (the bubble)
+//   isHeld()   — is there a living hand under the phone. A hand is never
+//                perfectly still: physiological tremor and the breath keep
+//                the accelerometer and gyro whispering. A phone laid on a
+//                table reads flat, centred, and dead quiet, and Steady
+//                must not count that as stillness. Below the sensor's own
+//                noise floor for a few seconds means "resting", and the
+//                engine gives resting time no credit.
+//
+// recenter() makes the current pose home, so a hand that has settled into
+// a new position is not stuck watching the bubble sit off-centre.
 // iOS requires an explicit permission call from a user gesture
 // (DeviceMotionEvent.requestPermission); Android just works over HTTPS.
 
@@ -18,8 +28,22 @@ let lastEvent = 0;          // performance.now() of the last real reading
 let posture = 0;            // 0..1, confidence in flat or upright holding
 let mode = 'flat';
 let uprightBase = null;
-let motionFixture = false;
-try { motionFixture = new URLSearchParams(location.search).get('motionfix') === '1'; } catch { /* node or no URL */ }
+let homeX = 0, homeY = 0;      // recenter offset, in the active mode's frame
+let rawX = 0, rawY = 0;        // the un-offset smoothed tilt, so recenter can read it
+// hand-vs-table: slow trackers of the sensor's fine motion
+let microAcc = 0;              // smoothed |accel deviation| in m/s^2
+let microRot = 0;              // smoothed |rotation rate| in deg/s
+let hasGyro = false;
+let quietSec = 0;              // continuous seconds under the noise floor
+let resting = false;
+let liveSec = 0;               // continuous seconds above it while resting
+let motionFixture = false;   // '1' = a calm hand, 'table' = set down
+let fixtureTable = false;
+try {
+  const fx = new URLSearchParams(location.search).get('motionfix');
+  motionFixture = fx === '1' || fx === 'table';
+  fixtureTable = fx === 'table';
+} catch { /* node or no URL */ }
 
 export function supported() {
   return motionFixture || typeof DeviceMotionEvent !== 'undefined';
@@ -58,6 +82,35 @@ export function stop() {
   if (listening) { window.removeEventListener('devicemotion', onMotion); listening = false; }
   churn = 0; tiltX = 0; tiltY = 0; posture = 0; lastEvent = 0;
   mode = 'flat'; uprightBase = null;
+  homeX = 0; homeY = 0; rawX = 0; rawY = 0;
+  microAcc = 0; microRot = 0; quietSec = 0; liveSec = 0; resting = false;
+}
+
+// Noise floors. A phone on a hard surface sits well under both; a hand,
+// even a very steady one, sits well over at least one. Both channels have
+// to be quiet for the phone to read as set down, and it has to stay that
+// way for a few seconds, so a single calm breath in a good hand is never
+// mistaken for a table. Devices without a gyro use the accelerometer alone
+// with a tighter floor.
+const REST_ACC = 0.035;        // m/s^2, smoothed deviation from gravity
+const REST_ACC_ONLY = 0.022;
+const REST_ROT = 0.35;         // deg/s, smoothed rotation rate
+const REST_AFTER_SEC = 3;      // this quiet, this long, is a surface
+const LIVE_AFTER_SEC = 0.4;    // and this much life brings the hand back
+
+function trackHand(dev, rotMag, hasRot, dt) {
+  // ~1.2 s time constant: tremor is 8-12 Hz, so a second of it is plenty,
+  // and a table's floor is reached in about the same time
+  const k = 1 - Math.exp(-dt / 1.2);
+  microAcc += (dev - microAcc) * k;
+  if (hasRot) { hasGyro = true; microRot += (rotMag - microRot) * k; }
+  const quiet = hasGyro
+    ? microAcc < REST_ACC && microRot < REST_ROT
+    : microAcc < REST_ACC_ONLY;
+  if (quiet) { quietSec += dt; liveSec = 0; }
+  else { liveSec += dt; quietSec = 0; }
+  if (!resting && quietSec > REST_AFTER_SEC) resting = true;
+  if (resting && liveSec > LIVE_AFTER_SEC) resting = false;
 }
 
 function onMotion(e) {
@@ -76,6 +129,10 @@ function onMotion(e) {
        Math.abs(e.rotationRate.gamma || 0)) / 300
     : 0;
   const raw = Math.min(1, dev / 1.6 + rot);
+  const rotMag = e.rotationRate
+    ? Math.hypot(e.rotationRate.alpha || 0, e.rotationRate.beta || 0, e.rotationRate.gamma || 0)
+    : 0;
+  trackHand(dev, rotMag, !!(e.rotationRate && e.rotationRate.alpha != null), dt);
   // fast attack, slow release — a jolt churns instantly, calm settles slowly
   churn = raw > churn ? churn + (raw - churn) * 0.5 : churn + (raw - churn) * 0.03;
   if (raw > 0.45 && now - lastSpike > 700) lastSpike = now;
@@ -90,7 +147,7 @@ function onMotion(e) {
   const nextMode = uprightNow > flatNow ? 'upright' : 'flat';
   if (nextMode !== mode && Math.abs(uprightNow - flatNow) > 0.18) {
     mode = nextMode;
-    tiltX = 0; tiltY = 0;
+    tiltX = 0; tiltY = 0; rawX = 0; rawY = 0; homeX = 0; homeY = 0;
     uprightBase = mode === 'upright'
       ? { x: (a.x || 0) / 9.8, y: (a.y || 0) / 9.8, z: (a.z || 0) / 9.8 }
       : null;
@@ -108,8 +165,26 @@ function onMotion(e) {
     targetX = portrait ? (a.x || 0) / g - uprightBase.x : (a.y || 0) / g - uprightBase.y;
     targetY = (a.z || 0) / g - uprightBase.z;
   }
-  tiltX += (targetX - tiltX) * k;
-  tiltY += (targetY - tiltY) * k;
+  rawX += (targetX - rawX) * k;
+  rawY += (targetY - rawY) * k;
+  tiltX = rawX - homeX;
+  tiltY = rawY - homeY;
+}
+
+// Wherever the hand is right now becomes the centre of the ring. Flat and
+// upright both keep their own frame; the offset just moves with the mode.
+export function recenter() {
+  if (!listening) return;
+  homeX = rawX; homeY = rawY;
+  tiltX = 0; tiltY = 0;
+}
+
+// True while a hand is under the phone (or while nobody can tell: the
+// fixture, or the first seconds before the trackers have settled).
+export function isHeld() {
+  if (!listening) return true;
+  if (motionFixture) return !fixtureTable;
+  return !resting;
 }
 
 export function getChurn() { return motionFixture && listening ? 0.02 : listening ? churn : 0; }

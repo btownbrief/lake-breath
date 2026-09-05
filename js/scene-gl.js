@@ -26,6 +26,15 @@ uniform vec4 u_ripple[5];  // x, y(uv), birth(sec), strength
 uniform float u_bloom;     // glow under the bloom (0..1)
 uniform float u_churn;     // Still Water: device motion churns the lake
 uniform float u_clear;     // sunny tomorrow: brighter disc and glitter
+// a real sky. The photo covers the sky down to its own waterline
+// (u_photoH, fraction from the photo's top), mapped onto the scene's
+// line; the water below reflects it. u_photoMix fades it in and out.
+uniform sampler2D u_photo;
+uniform float u_photoMix;
+uniform float u_photoH;
+uniform float u_photoCx;      // horizontal centre of interest, 0..1
+uniform float u_photoAspect;  // photo width / height
+uniform vec3 u_photoTint;     // tomorrow's forecast, applied to the photo
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){
@@ -68,17 +77,32 @@ void main(){
   float horizon = u_horizon + breath * .010; // lake rises with the inhale
   vec3 col;
 
+  // The photo is placed pixel-for-pixel as far as the screen allows: its
+  // sky fills the scene's sky vertically unless the screen is wider than
+  // the photo, in which case the crop widens and the top of the photo's
+  // sky is left off. Portrait phones see a centred slice around u_photoCx.
+  float pm = u_photoMix;
+  float screenAspect = u_res.x / u_res.y;
+  float pS = min(u_photoH / horizon, u_photoAspect / screenAspect);
+  float pSpan = pS * screenAspect / u_photoAspect;
+  float pCx = clamp(u_photoCx, pSpan * .5, 1. - pSpan * .5);
+  float painted = 1. - pm;   // how much of the painted sky still shows
+
   float sunGlow = 0.;
   if (y < horizon) {
     // ---- sky
     float t = y / horizon;                 // 0 top .. 1 horizon
     col = mix(u_skyTop, u_skyLow, pow(t, 1.35));
-    // sun / moon disc + atmosphere
+    if (pm > .001) {
+      vec2 puv = vec2(pCx + (uv.x - .5) * pSpan, u_photoH - (horizon - y) * pS);
+      col = mix(col, texture(u_photo, puv).rgb * u_photoTint, pm);
+    }
+    // sun / moon disc + atmosphere (the photo brings its own sun)
     float d = distance(vec2(uv.x, y * (u_res.y / u_res.x)), vec2(u_sun.x, u_sun.y * (u_res.y / u_res.x)));
     sunGlow = exp(-d * d / (u_sunSize * u_sunSize * 2.));
     float disc = smoothstep(u_sunSize * .42, u_sunSize * .34, d);
     float sunBoost = 1. + u_clear * .58;
-    col += u_sunCol * (sunGlow * .55 + disc * (1. - u_night * .35)) * sunBoost;
+    col += u_sunCol * (sunGlow * .55 + disc * (1. - u_night * .35)) * sunBoost * painted;
     // stars — sized to survive the reduced-resolution render
     if (u_night > .01) {
       vec2 grid = uv * vec2(52., 34.);
@@ -89,7 +113,7 @@ void main(){
         vec2 c = vec2(.2 + hash(g + 11.) * .6, .2 + hash(g + 13.) * .6);
         float star = smoothstep(.16, .02, distance(fract(grid), c));
         float mag = .35 + hash(g + 17.) * .65;
-        col += vec3(.88, .93, 1.) * star * tw * mag * u_night * (1. - y / horizon) * .9;
+        col += vec3(.88, .93, 1.) * star * tw * mag * u_night * (1. - y / horizon) * .9 * painted;
       }
     }
     // Soft, shaped cumulus. The tops catch the forecast-tinted sun while
@@ -107,13 +131,13 @@ void main(){
     cloudLight *= mix(1., .44, u_night);
     float cloudLit = clamp(.08 + topLight * .72 + (cloudGrain - .5) * .50, 0., 1.);
     vec3 cloudCol = mix(cloudShadow, cloudLight, cloudLit);
-    col = mix(col, cloudCol, cl * mix(.64, .28, u_night));
+    col = mix(col, cloudCol, cl * mix(.64, .28, u_night) * painted);
     // ---- ridges (two, for depth), edges anti-aliased
     float aa = 1.5 / u_res.y;
     float r1 = horizon - .040 - ridge(uv.x, 7.) * .046;
     float r2 = horizon - .013 - ridge(uv.x, 23.) * .026;
-    col = mix(col, mix(u_ridge, u_skyLow, .35), smoothstep(r1 - aa, r1 + aa, y) * .88);
-    col = mix(col, u_ridge, smoothstep(r2 - aa, r2 + aa, y) * .92);
+    col = mix(col, mix(u_ridge, u_skyLow, .35), smoothstep(r1 - aa, r1 + aa, y) * .88 * painted);
+    col = mix(col, u_ridge, smoothstep(r2 - aa, r2 + aa, y) * .92 * painted);
   } else {
     // ---- water
     float depth = (y - horizon) / (1. - horizon);   // 0 at line .. 1 bottom
@@ -147,6 +171,16 @@ void main(){
     col += w * .018 * (0.6 + 0.8 * noise(vec2(uv.x * 23., depth * 31.)));
     // sky reflection sheen near the line
     col = mix(col, u_skyLow, (1. - depth) * .38);
+    // the real sky, mirrored in the water: squeezed toward the line,
+    // shaken by the same waves, strongest where the water is far away
+    if (pm > .001) {
+      float top = u_photoH - horizon * pS;
+      vec2 ruv = vec2(pCx + (uv.x - .5) * pSpan + w * .0045,
+                      max(top, u_photoH - (y - horizon) * pS * 1.15));
+      vec3 refl = texture(u_photo, ruv).rgb * u_photoTint;
+      float rs = pow(1. - depth, 1.5) * .70 * pm;
+      col = mix(col, refl * (.72 + .28 * (1. - depth)) + w * .012, rs);
+    }
     // ---- the glitter path: strongest when the sun sits low
     float lowSun = 1. - smoothstep(.08, .30, horizon - u_sun.y);
     float dx = (uv.x - u_sun.x) / (.05 + depth * .16);
@@ -175,6 +209,12 @@ export class LakeScene {
     this._lastNow = performance.now();
     this.timeScale = 1;
     this._rippleBuf = new Float32Array(20);
+    // the real sky: {img, entry} now showing, the one waiting, and the
+    // fade between them (0..1, eased in draw)
+    this.photo = null;
+    this.photoNext = undefined;  // undefined = nothing queued; null = fade out
+    this.photoMix = 0;
+    this.photoTint = [1, 1, 1];
     // mobile browsers shed WebGL contexts under memory pressure — recover
     canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
@@ -214,9 +254,22 @@ export class LakeScene {
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     for (const name of ['u_res', 'u_time', 'u_breath', 'u_night', 'u_horizon',
       'u_skyTop', 'u_skyLow', 'u_waterHi', 'u_waterLo', 'u_sunCol', 'u_ridge',
-      'u_sun', 'u_sunSize', 'u_ripple', 'u_churn', 'u_clear']) {
+      'u_sun', 'u_sunSize', 'u_ripple', 'u_churn', 'u_clear',
+      'u_photo', 'u_photoMix', 'u_photoH', 'u_photoCx', 'u_photoAspect', 'u_photoTint']) {
       this.uniforms[name] = gl.getUniformLocation(prog, name);
     }
+    // one texture, always bound to unit 0: a 1x1 blank until a photo lands
+    this.tex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+    gl.uniform1i(this.uniforms.u_photo, 0);
+    this._uploaded = null;
+    if (this.photo) this._upload(this.photo.img); // context restored mid-photo
     this.ok = true;
     this.resize();
   }
@@ -244,15 +297,61 @@ export class LakeScene {
     if (this.ripples.length > 5) this.ripples.shift();
   }
 
+  // Show a real sky. `photo` is {img, entry: {horizon, cx}} or null for
+  // the painted sky. The current one fades out over a couple of seconds
+  // before the new one fades in, so a phase change never pops.
+  setPhoto(photo) {
+    const sameFile = (a, b) => (a?.entry?.file || null) === (b?.entry?.file || null);
+    if (this.photoNext === undefined ? sameFile(this.photo, photo) : sameFile(this.photoNext, photo)) return;
+    this.photoNext = photo;
+  }
+
+  _upload(img) {
+    const gl = this.gl;
+    if (!gl || !img) return;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.tex);
+    try {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      this._uploaded = img;
+    } catch { this._uploaded = null; }
+  }
+
+  _stepPhoto(dt) {
+    const fading = this.photoNext !== undefined;
+    if (fading && this.photoMix > 0.002) {
+      this.photoMix = Math.max(0, this.photoMix - dt / 1.8);
+      return;
+    }
+    if (fading) {
+      this.photo = this.photoNext;
+      this.photoNext = undefined;
+      this.photoMix = 0;
+      if (this.photo) this._upload(this.photo.img);
+    }
+    if (this.photo && this._uploaded === this.photo.img && this.photoMix < 1) {
+      this.photoMix = Math.min(1, this.photoMix + dt / 2.4);
+    }
+  }
+
   // state: { breath, night, horizon, skyTop, skyLow, waterHi, waterLo,
   //          sunCol, ridge, sun:[x,y], sunSize, bloom }  (colors = [r,g,b] 0..1)
   draw(state) {
     if (!this.ok) return;
     const gl = this.gl, u = this.uniforms;
     const nowP = performance.now();
-    this._t += Math.min(100, nowP - this._lastNow) * this.timeScale / 1000;
+    const dtReal = Math.min(100, nowP - this._lastNow) / 1000;
+    this._t += dtReal * this.timeScale;
     this._lastNow = nowP;
     const t = this._t;
+    this._stepPhoto(dtReal);
+    const ph = this.photo && this._uploaded === this.photo.img ? this.photo : null;
+    const pe = ph ? ph.entry : null;
+    gl.uniform1f(u.u_photoMix, ph ? this.photoMix : 0);
+    gl.uniform1f(u.u_photoH, pe ? pe.horizon : 0.6);
+    gl.uniform1f(u.u_photoCx, pe ? pe.cx : 0.5);
+    gl.uniform1f(u.u_photoAspect, ph ? (ph.img.naturalWidth || 1) / (ph.img.naturalHeight || 1) : 1);
+    gl.uniform3fv(u.u_photoTint, state.photoTint || this.photoTint);
     gl.uniform2f(u.u_res, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.u_time, t);
     gl.uniform1f(u.u_breath, state.breath);
