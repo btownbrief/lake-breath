@@ -8,11 +8,11 @@ import {
   townState, TOWN,
   seasonFor, skyPhase, nyParts, nyMonthKey, dailyIndex,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
-  presenceLine, freshPaddle, paddleStroke, freshSteady, steadyStep, driftPhrase,
+  presenceLine, freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase, driftPhrase,
 } from './engine.js';
 import {
   presetById, PLAQUES, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
-  MANTRAS, NOTE_EXAMPLES, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
+  MANTRAS, MUSIC, NOTE_EXAMPLES, GUIDE_STEPS, GUIDE_TITLE, GUIDE_BUTTON,
 } from './content.js';
 import * as sound from './sound.js';
 import * as haptics from './haptics.js';
@@ -20,6 +20,11 @@ import * as net from './net.js';
 import * as still from './stillness.js';
 import * as town from './town.js';
 import { LakeScene, palette, celestial } from './scene-gl.js';
+import { PHOTOS, pickPhoto, loadPhoto } from './photos.js';
+// Screenshot-only: ?photofix=<file> pins one real sky so each photograph
+// can be checked against the waterline. Absent in production use.
+let photoFix = '';
+try { photoFix = new URLSearchParams(location.search).get('photofix') || ''; } catch { /* fine */ }
 import { Bloom } from './bloom.js';
 
 const $ = (id) => document.getElementById(id);
@@ -36,6 +41,7 @@ const LEGACY_SIT_KEY = 'lakebreath-sit-mins';
 const MINS_KEY = 'lakebreath-mins-';
 const FORECAST_KEY = 'lakebreath-forecast';
 const EMBLEM_KEY = 'lakebreath-event-emblem';
+const OWN_MUSIC_KEY = 'lakebreath-own-music';
 const STILL_GLASS = 0.12; // churn below this = the water reads as glass
 
 // Steady's geometry, in units of min(canvasW, canvasH) so it means the
@@ -70,6 +76,26 @@ function storedBool(key, fallback) {
 }
 let forecastOn = storedBool(FORECAST_KEY, true);
 let emblemOn = storedBool(EMBLEM_KEY, true);
+let ownMusic = storedBool(OWN_MUSIC_KEY, false);
+sound.setOwnMusicMode(ownMusic);
+if (ownMusic) sound.setSoundEnabled(false);
+
+function showSoundState() {
+  const on = sound.soundEnabled();
+  for (const id of ['sound-toggle', 'session-sound']) {
+    const btn = $(id);
+    if (!btn) continue;
+    btn.textContent = on ? 'sound on' : 'sound off';
+    btn.setAttribute('aria-pressed', String(on));
+  }
+}
+
+function toggleSound() {
+  const on = !sound.soundEnabled();
+  sound.setSoundEnabled(on);
+  if (on) sound.unlock();
+  showSoundState();
+}
 
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch { /* fine */ }
@@ -104,6 +130,21 @@ const HORIZON = 0.60;
 // Ambient scene state is cached per minute. Intl date math and palette
 // blending are far too expensive to run per frame on a phone.
 let ambCache = { key: '', st: null };
+// The real sky now showing (or loading). Photos are chosen per phase per
+// Burlington day; the scene crossfades when the pick changes.
+let photoWant = null;   // the entry sceneState last asked for
+let photoHave = null;   // {img, entry, colors} once loaded, or null
+function wantPhoto(entry) {
+  if ((entry?.file || null) === (photoWant?.file || null)) return;
+  photoWant = entry;
+  if (!entry) { photoHave = null; scene.setPhoto(null); ambCache.key = ''; return; }
+  loadPhoto(entry).then((loaded) => {
+    if (photoWant !== entry) return; // the sky moved on while this loaded
+    photoHave = loaded;
+    scene.setPhoto(loaded);
+    ambCache.key = ''; // the palette follows the photo now
+  });
+}
 function sceneState(nowMs, breath, churn) {
   const key = `${Math.floor(nowMs / 60000)}:${forecastOn}`;
   if (ambCache.key !== key) {
@@ -117,13 +158,25 @@ function sceneState(nowMs, breath, churn) {
       : (phaseNow === 'dawn' || phaseNow === 'dusk' || phaseNow === 'golden') ? 0.78
       : 1;
     const tintWeather = tomorrow ? { ...tomorrow, deltaF: tomorrow.deltaF * tintScale } : null;
-    const pal = town.tintPalette(palette(phaseNow, phaseSoon, blend, season), tintWeather);
+    wantPhoto(photoFix ? PHOTOS.find((e) => e.file === photoFix) || null : pickPhoto(phaseNow, season, dailyIndex(nowMs, 97)));
+    let base = palette(phaseNow, phaseSoon, blend, season);
+    const pc = photoHave && photoHave.entry === photoWant ? photoHave.colors : null;
+    if (pc) {
+      // the water and the bloom take their colours off the photograph, so
+      // the painted half of the scene belongs to the same evening
+      const dark = (c, k) => c.map((v) => v * k);
+      base = { ...base, skyTop: pc.skyTop, skyLow: pc.skyLow, waterHi: dark(pc.skyLow, 0.55), waterLo: dark(pc.skyLow, 0.16) };
+    }
+    const pal = town.tintPalette(base, tintWeather);
+    // tomorrow's forecast lands on the photo as the same lean it gives the
+    // painted sky: tinted over untinted, per channel
+    const photoTint = base.skyLow.map((v, i) => Math.max(0.6, Math.min(1.5, (pal.skyLow[i] + 0.02) / (v + 0.02))));
     const night = phaseNow === 'night' ? 1 : (phaseSoon === 'night' ? blend : (phaseNow === 'dusk' || phaseNow === 'dawn' ? 0.3 : 0));
     const dayFrac = (p.hour * 60 + p.minute) / 1440;
     const cel = celestial(dayFrac, night);
     const weatherKind = forecastKind(tomorrow, p.month);
     ambCache = { key, st: {
-      night, horizon: HORIZON, ...pal, ...cel,
+      night, horizon: HORIZON, ...pal, ...cel, photoTint,
       clear: weatherKind === 'clear' ? 1 : 0,
       _weather: weatherKind, _phase: phaseNow, _season: season,
     } };
@@ -445,6 +498,9 @@ async function startSessionInner({ town: isTown = false } = {}) {
     toast('Steady needs a motion sensor. This device did not offer one.');
     return;
   }
+  sound.setOwnMusicMode(ownMusic);
+  if (ownMusic) sound.setSoundEnabled(false);
+  showSoundState();
   sound.unlock();
   // "Again" can start a new sit while the last gong is still ringing its
   // twelve second tail. The new session gets its own silence.
@@ -464,9 +520,11 @@ async function startSessionInner({ town: isTown = false } = {}) {
     // numbers below it are just what the meter lines read off.
     steady: freshSteady(),
     steadyReady, steadyOn: steadyReady,
+    restToldAt: 0, awayHintDone: false, awayRun: 0,
     // Paddle: taps come in from the window listener and are judged as they
     // land, against the cadence current at that moment.
     paddle: freshPaddle(), lastTap: 0,
+    canoe: tech.kind === 'paddle' ? { x: 0.18, v: 0, stroke: 0, crossings: 0 } : null,
     presenceTimer: setInterval(async () => {
       const n = await net.beat();
       if (session) $('presence-live').textContent = presenceLine(n ?? 0) || '';
@@ -485,11 +543,11 @@ async function startSessionInner({ town: isTown = false } = {}) {
     isTown ? 'The 8:02. The whole town, one clock'
       : tech.steps ? PORCH_INTRO
       : tech.kind === 'timer' ? 'The lake keeps time. Sit however you like.'
-      : tech.kind === 'still' ? 'Hold the phone flat or upright. Keep the light centered.'
-      : tech.kind === 'paddle' ? 'Tap the water at your own steady pace. Like paddle strokes. Keep the rhythm; let your mind go where it wants.'
+      : tech.kind === 'still' ? 'Hold the phone in your hand, flat or upright, and keep the light centered. A hand is never perfectly still. That is the point.'
+      : tech.kind === 'paddle' ? 'Each stroke moves the canoe. Keep a slow rhythm; let your mind go where it wants.'
       : '';
   $('session-instruction').textContent = tech.kind === 'paddle'
-    ? 'Tap the water like a paddle stroke. Find a slow, steady rhythm.'
+    ? 'Each stroke moves the canoe. Find a slow, steady rhythm.'
     : isBreathing && steadyReady
       ? 'Breathe with the words. Keep the light centered. Tap the water like a paddle.'
       : isBreathing
@@ -501,6 +559,7 @@ async function startSessionInner({ town: isTown = false } = {}) {
   const steadyBtn = $('session-steady');
   steadyBtn.hidden = !steadyReady || tech.kind === 'still';
   steadyBtn.textContent = 'steady on';
+  $('session-recenter').hidden = !steadyReady;
   $('still-meter').textContent = '';
   $('drift-line').textContent = '';
   $('remaining').textContent = '';
@@ -529,13 +588,28 @@ function updateSteadyLayer(s, dt) {
   const bx = Math.max(-limX, Math.min(limX, tilt.x * STEADY_GAIN));
   const by = Math.max(-limY, Math.min(limY, -tilt.y * STEADY_GAIN));
   const inRing = Math.hypot(bx, by) <= STEADY_RING;
-  bubble = { x: bx, y: by, r: STEADY_RING, inRing };
-  s.steady = steadyStep(s.steady, { inRing, flat: tilt.flat, churn, dt });
+  const held = still.isHeld();
+  bubble = { x: bx, y: by, r: STEADY_RING, inRing, resting: !held };
+  s.steady = steadyStep(s.steady, { inRing, flat: tilt.flat, churn, held, dt });
   s.stillSec = s.steady.centeredSec;
   s.drifts = s.steady.drifts;
   if (s.key === 'still') {
-    $('still-meter').textContent = `home ${fmt(s.stillSec)}`;
-    $('drift-line').textContent = s.drifts ? `drifts: ${s.drifts}` : '';
+    $('still-meter').textContent = held ? `home ${fmt(s.stillSec)}` : 'Set down? Steady counts a hand, not a table.';
+    $('drift-line').textContent = held && s.drifts ? `drifts: ${s.drifts}` : '';
+  } else if (!held && !s.restToldAt) {
+    // the other practices get told once, quietly, the first time the phone
+    // reads as resting; the meter lines belong to Steady alone
+    s.restToldAt = performance.now();
+    toast('The phone is resting on something. Steady only counts a hand.');
+  }
+  // A hand that settled somewhere new sits off-centre forever unless told
+  // otherwise. Six seconds out of the ring, in hand, earns one pointer to
+  // the recenter button, per session.
+  s.awayRun = held && !inRing ? s.awayRun + dt : 0;
+  if (!s.awayHintDone && s.awayRun > 6) {
+    s.awayHintDone = true;
+    wakeQuietTimer();
+    toast('Comfortable where your hand is? Tap recenter and that becomes home.');
   }
   if (still.spiked()) {
     scene.ripple(0.3 + Math.random() * 0.4, HORIZON + 0.1 + Math.random() * 0.2, 0.8);
@@ -576,8 +650,17 @@ function sessionFrame(nowP) {
   }
 
   if (s.tech.kind === 'paddle') {
-    // Paddle counts nothing per frame; taps arrive from the window
-    // listener. The water just keeps breathing on its own underneath.
+    const canoe = s.canoe;
+    canoe.x += canoe.v * dt;
+    canoe.v *= Math.exp(-1.15 * dt);
+    if (canoe.v < 0.0005) canoe.v = 0;
+    canoe.stroke = Math.max(0, canoe.stroke - dt / 0.8);
+    if (canoe.x > 0.92) {
+      canoe.x = 0.08;
+      canoe.crossings += 1;
+    }
+    // Taps arrive from the window listener. The water keeps breathing on
+    // its own underneath while each impulse settles into a glide.
     updateRemaining(t, s);
     return { breath: idleBreath(), churn: steadyChurn };
   }
@@ -622,6 +705,10 @@ function paddleTap(xUv, yUv) {
   // a tap above the waterline still lands ON the water, just below itself:
   // the stroke has to leave a mark or the practice has no answer
   scene.ripple(xUv, Math.max(HORIZON + 0.02, yUv), 1);
+  if (s.canoe) {
+    s.canoe.v = Math.min(0.14, s.canoe.v + 0.035);
+    s.canoe.stroke = 1;
+  }
   sound.stroke();
   $('tap-line').textContent = tapLine(s.paddle);
 }
@@ -680,6 +767,12 @@ function paddleReceipt(tally, last) {
   const lines = [`You kept ${tally.onRhythm} of ${n} strokes on rhythm. Longest run: ${tally.longestRun}.`];
   if (last) lines.push(`Last time: ${last.onRhythm} of ${judged(last)}, longest run ${last.longestRun}.`);
   return lines.join(' ');
+}
+
+function canoeReceipt(n) {
+  if (n === 1) return 'You crossed the lake once.';
+  if (n === 2) return 'You crossed the lake twice.';
+  return `You crossed the lake ${n} times.`;
 }
 
 // One good thing from the neighborhood, on the end screen, in the slot the
@@ -752,7 +845,9 @@ function finishSession(completed) {
   else if (tally.strokes > 1) {
     receipt.push(`You made ${tally.strokes} paddle strokes. ${tally.onRhythm} of ${tally.judgedGaps} gaps stayed near your rhythm.`);
   }
+  if (s.canoe?.crossings) receipt.push(canoeReceipt(s.canoe.crossings));
   if (practicedSec >= 30 && s.steadyOn && s.key !== 'still') receipt.push(steadyFact(s.drifts));
+  if (s.steadyOn) { const rest = restingPhrase(s.steady.restingSec); if (rest) receipt.push(rest); }
   $('end-sub').textContent = receipt.join(' ');
   $('end-grow').textContent =
     after.stage > before.stage ? 'Your maple grew.'
@@ -993,6 +1088,9 @@ function loop(nowP) {
   const emblemVisible = emblemOn && anchorNow && !session && document.body.dataset.view === 'front';
   if (emblemVisible) bloom.drawEventEmblem(anchorNow.kind, breathSmooth, 1 - st.night * 0.32);
   if (bubble) bloom.drawBubble(bubble); // Steady's focus object
+  if (session?.tech.kind === 'paddle' && session.canoe) {
+    bloom.drawCanoe({ ...session.canoe, y: 0.70, heading: 1, bob: breathSmooth });
+  }
   // warm-night fireflies; a steady breath draws them toward the bloom
   const flyNight = st.night > 0.55 && (st._season === 'summer' || st._season === 'spring' || st._season === 'foliage');
   bloom.drawFireflies(flyNight, session && !session.tech.steps ? 0.9 : 0.15, dt);
@@ -1032,6 +1130,15 @@ function wire() {
     openGuide();
   });
   $('stop').addEventListener('click', () => finishSession(false));
+  $('session-recenter').addEventListener('click', () => {
+    const s = session;
+    if (!s || !s.steadyOn) return;
+    still.recenter();
+    s.steady = steadyRecenter(s.steady);
+    s.awayRun = 0;
+    wakeQuietTimer();
+    toast('Home is here now.');
+  });
   $('session-steady').addEventListener('click', async () => {
     const s = session;
     if (!s) return;
@@ -1040,6 +1147,7 @@ function wire() {
       bubble = null;
       still.stop();
       $('session-steady').textContent = 'steady off';
+      $('session-recenter').hidden = true;
       return;
     }
     const ok = await still.start();
@@ -1047,6 +1155,11 @@ function wire() {
     if (!ok) { $('session-steady').hidden = true; return; }
     s.steadyOn = true;
     $('session-steady').textContent = 'steady on';
+    $('session-recenter').hidden = false;
+  });
+  $('session-sound').addEventListener('click', () => {
+    wakeQuietTimer();
+    toggleSound();
   });
   $('end-done').addEventListener('click', () => {
     clearTimeout(finishSession._anchorT);
@@ -1102,13 +1215,8 @@ function wire() {
 
   // Scene and sound toggles live together in the top links.
   const sBtn = document.createElement('button');
-  sBtn.className = 'tbtn'; sBtn.textContent = 'sound on';
-  sBtn.addEventListener('click', () => {
-    const on = !sound.soundEnabled();
-    sound.setSoundEnabled(on);
-    if (on) sound.unlock();
-    sBtn.textContent = on ? 'sound on' : 'sound off';
-  });
+  sBtn.id = 'sound-toggle'; sBtn.className = 'tbtn';
+  sBtn.addEventListener('click', toggleSound);
   const fBtn = document.createElement('button');
   fBtn.className = 'tbtn';
   const showForecastState = () => {
@@ -1135,6 +1243,31 @@ function wire() {
     showEmblemState();
   });
   document.querySelector('.toplinks').prepend(sBtn, fBtn, eBtn);
+  showSoundState();
+
+  const musicLinks = [
+    [$('music-spotify'), MUSIC.spotify],
+    [$('music-youtube'), MUSIC.youtube],
+  ];
+  for (const [link, url] of musicLinks) {
+    if (!url) continue;
+    link.href = url;
+    link.hidden = false;
+  }
+  const ownMusicBtn = $('own-music-toggle');
+  const showOwnMusicState = () => {
+    ownMusicBtn.textContent = `your music: ${ownMusic ? 'on' : 'off'}`;
+    ownMusicBtn.setAttribute('aria-pressed', String(ownMusic));
+  };
+  showOwnMusicState();
+  ownMusicBtn.addEventListener('click', () => {
+    ownMusic = !ownMusic;
+    try { localStorage.setItem(OWN_MUSIC_KEY, ownMusic ? '1' : '0'); } catch { /* fine */ }
+    sound.setOwnMusicMode(ownMusic);
+    if (ownMusic) sound.setSoundEnabled(false);
+    showOwnMusicState();
+    showSoundState();
+  });
 
   // touching the water makes ripples: your hand moves the world. During
   // Paddle every tap anywhere is a stroke, except taps on real controls

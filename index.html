@@ -51,7 +51,7 @@
       <h1 class="greeting" id="greeting">Good evening.</h1>
       <button class="mantra" id="mantra" title="What the three phrases mean">Listen. Choose again. Devote.</button>
       <p class="undergreeting" id="undergreeting" aria-live="polite"></p>
-      <p class="forecast-key">The sky shows tomorrow. Red is warmer, blue is cooler.</p>
+      <p class="forecast-key">The sky shows tomorrow. Red is warmer, blue is cooler. <a href="https://guide.btownbrief.com/weather.html" target="_blank" rel="noopener">Full forecast</a></p>
       <div class="begin-row">
         <button class="begin" id="begin">Breathe</button>
         <div class="practice-controls">
@@ -69,7 +69,11 @@
     <p class="phase-sub" id="phase-sub"></p>
     <div class="session-options">
       <p class="session-instruction" id="session-instruction"></p>
-      <button class="session-steady" id="session-steady" hidden>steady on</button>
+      <div class="session-buttons">
+        <button class="session-steady" id="session-steady" hidden>steady on</button>
+        <button class="session-steady" id="session-recenter" hidden>recenter</button>
+        <button class="session-steady" id="session-sound">sound on</button>
+      </div>
     </div>
     <p class="tap-line" id="tap-line"></p>
     <p class="remaining" id="remaining"></p>
@@ -109,6 +113,14 @@
     <button class="close" data-close="practice-sheet">close</button>
     <h2>A practice</h2>
     <div id="practice-rows"></div>
+    <div class="own-music">
+      <p>Play your own playlist and the lake goes quiet.</p>
+      <div class="music-actions">
+        <a class="music-link" id="music-spotify" target="_blank" rel="noopener" hidden>Open Spotify</a>
+        <a class="music-link" id="music-youtube" target="_blank" rel="noopener" hidden>Open YouTube</a>
+        <button class="own-music-toggle" id="own-music-toggle">your music: off</button>
+      </div>
+    </div>
   </div>
 
   <div class="sheet" id="note-sheet" data-open="false" inert role="dialog" aria-label="Send a kind note">
@@ -134,6 +146,7 @@
     <p class="shore-line" id="anchor-line"></p>
     <p class="shore-line" id="town-line"></p>
     <div class="shore-foot">
+      <a href="https://guide.btownbrief.com/weather.html" target="_blank" rel="noopener">Full forecast</a>
       <a href="https://play.btownbrief.com/">Btown Brief arcade</a>
       <button class="reset" id="reset-history">reset this device</button>
     </div>

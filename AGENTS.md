@@ -62,6 +62,24 @@ to the same wall clock.
   where motion data is unavailable.
 - The shared arcade `nav.js` is deliberately NOT included (sanctuary
   choice, documented in README). Don't re-add it without Stephen.
+- **The sky is a real photograph** (`js/photos.js` + `assets/photos/`).
+  Every file there is one of Stephen's own @btownbrief posts, resized to
+  1080px; never add stock or anyone else's photo. Each entry carries the
+  photo's own waterline (`horizon`, fraction from the top) and the scene
+  maps it onto its line, so the photo only ever shows sky and far shore;
+  the shader water below mirrors it. One photo per sky phase per
+  Burlington day, chosen by `dailyIndex`; night has no photo on purpose.
+  Water and bloom colours are sampled off the photo, then the forecast
+  tint applies as usual. Check a new photo with `?photofix=<file>` plus
+  `?timefix=` and screenshot before adding it.
+- **Steady counts a hand, not a table.** `js/stillness.js` watches the
+  accelerometer and gyro noise floors: a living hand always trembles a
+  little, a phone on a surface reads dead quiet. Three quiet seconds
+  flips it to resting; the engine's `steadyStep` takes `held` and gives
+  resting time no credit and no drift, tallying it as `restingSec` for
+  the receipt. `?motionfix=table` fakes a set-down phone for screenshots.
+  `recenter()` makes the current pose home with no penalty
+  (`steadyRecenter` forgives an away in progress).
 - Fraunces is used with `font-variation-settings: 'SOFT' 100, 'WONK' 0`
   everywhere — the wonk axis stays off; this is a calm serif, not a
   quirky one.

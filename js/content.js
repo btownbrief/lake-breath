@@ -46,13 +46,19 @@ export const NOTE_EXAMPLES = [
 // screen; they either land or they don't.
 export const MANTRAS = ['Listen.', 'Choose again.', 'Devote.'];
 
+// Stephen fills in his playlist URLs here. An empty string hides the link.
+export const MUSIC = {
+  spotify: '',
+  youtube: '',
+};
+
 // First run only, and re-openable from Field Notes. Short lines, in order:
 // what the lake is, when the town gathers, what the practices are, what
 // grows, what happens after. Then the three phrases.
 export const GUIDE_STEPS = [
   'A living Lake Champlain. It follows Burlington’s real sky, season, and clock.',
   'Breathe anytime. At 8:02 each evening the whole town breathes together, and you can see how many neighbors are on the water with you.',
-  'Six practices. Try Paddle: tap the water in your own slow rhythm, like strokes across the lake, and let your thoughts drift while your hands keep time. Or breathe, hold the phone steady, or just sit. Like a walk in the park: do the simple thing, and let your best thinking arrive. Keep voice memos nearby for the ideas that surface.',
+  'Six practices. Try Paddle: tap the water in your own slow rhythm, like strokes across the lake, and let your thoughts drift while your hands keep time. Or breathe, hold the phone steady, or just sit. Steady counts a phone in a living hand, never one set down on a table; a hand is never perfectly still, and that small tremble is what you are settling. Like a walk in the park: do the simple thing, and let your best thinking arrive. Keep voice memos nearby for the ideas that surface.',
   'Your maple grows on the shore with every day you show up. It never shrinks.',
   'After a sit, send a kind note to the town, and read what neighbors left for you.',
 ];

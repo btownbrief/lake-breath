@@ -217,27 +217,44 @@ export function paddleStroke(state, gapMs) {
 //   inRing — is the bubble inside the ring
 //   flat   — 0..1, confidence in the auto-picked flat or upright pose
 //   churn  — 0..1 smoothed motion
+//   held   — is the phone in a living hand (default true for callers and
+//            sensors that cannot tell)
 //   dt     — seconds since the last tick
 //
-// Centered ("home") time needs all three: bubble home, a valid calibrated
-// pose, and the lake calm. Without the pose gate a device with no useful
-// orientation reading would earn a perfect session at zero.
+// Centered ("home") time needs all of it: bubble home, a valid calibrated
+// pose, the lake calm, and a hand. Without the pose gate a device with no
+// useful orientation reading would earn a perfect session at zero. Without
+// the hand gate a phone set down on a table would earn a perfect session
+// for doing nothing: a hand is never perfectly still, and that tremor is
+// what Steady is actually counting. Resting time is tallied separately so
+// the receipt can say so as a plain fact.
 //
 // Drifts are episodes, not samples: one departure or one pickup is one
 // drift however long it lasts, it only counts once it has lasted a second,
 // and the count can't advance again until the phone comes properly home.
+// Setting the phone down is not a drift either way; it is simply time
+// that does not count.
 export const STEADY_FLAT_MIN = 0.5;    // below this the bubble means nothing
 export const STEADY_CALM_MAX = 0.35;   // churn above this is not "settled"
 export const STEADY_PICKUP = 0.5;      // churn above this is a pickup
 export const STEADY_AWAY_SEC = 1;      // an away has to last a second
 
 export function freshSteady() {
-  return { centeredSec: 0, drifts: 0, awaySec: 0, awayCounted: false };
+  return { centeredSec: 0, drifts: 0, awaySec: 0, awayCounted: false, restingSec: 0 };
 }
 
-export function steadyStep(state, { inRing, flat, churn, dt }) {
+export function steadyStep(state, { inRing, flat, churn, held = true, dt }) {
   const s = { ...state };
   const step = Math.max(0, Math.min(0.25, dt || 0));
+  if (!held) {
+    // On a table, a bench, a car seat: the bubble sits dead centre and
+    // means nothing. No credit, no drift, and the away clock resets so
+    // picking the phone back up starts clean.
+    s.restingSec = (s.restingSec || 0) + step;
+    s.awaySec = 0;
+    s.awayCounted = false;
+    return s;
+  }
   const home = inRing && flat > STEADY_FLAT_MIN && churn < STEADY_CALM_MAX;
   const away = !inRing || churn > STEADY_PICKUP;
   if (home) {
@@ -254,6 +271,21 @@ export function steadyStep(state, { inRing, flat, churn, dt }) {
   // Neither home nor away (a phone tipped up, or settling after a pickup)
   // earns nothing and costs nothing. Silence is a fair answer.
   return s;
+}
+
+// Recentering makes wherever the hand is now the new home. It is not a
+// drift and it forgives an away episode already in progress: the person
+// moved on purpose, and the whole point of the button is no penalty.
+export function steadyRecenter(state) {
+  return { ...state, awaySec: 0, awayCounted: false };
+}
+
+// The receipt's line about resting, if there is one to say. Under ten
+// seconds is a fumble, not a rest, and gets no line at all.
+export function restingPhrase(sec) {
+  const n = Math.round(sec || 0);
+  if (n < 10) return '';
+  return `The phone rested on something for ${n} seconds. Only time in a hand counts.`;
 }
 
 // Shared receipt line for the two attention practices. Counting is fine;
