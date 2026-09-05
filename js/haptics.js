@@ -40,6 +40,10 @@ export function phaseTurn(kind) {
   } catch { /* fine */ }
 }
 
+export function sharedTick() {
+  if (canVibrate) { try { navigator.vibrate(60); } catch { /* fine */ } }
+}
+
 export function stop() {
   if (canVibrate) { try { navigator.vibrate(0); } catch { /* fine */ } }
 }

@@ -29,15 +29,21 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
   button makes wherever your hand has settled the new home, no penalty.
   It silently disappears without a sensor and can be turned off for a
   session.
+- **Lie Down** — lie on your back with the phone flat on your belly and
+  the lake breathes with your actual breath, read off the accelerometer.
+  No microphone, no camera, and it says so honestly when it cannot find
+  one.
+- **Sessions that keep going** — when your time is up the bell rings once
+  and the clock counts up; sit as long as you like and see how long it
+  was. Stop holds first; paused time is never counted.
 - **Paddle strokes everywhere** — breathing prompts, the centered light,
   and water taps can all run together. Each tap ripples the lake and joins
   the live rhythm count; Paddle remains the dedicated tapping practice,
   and there a canoe glides forward with every stroke and crosses the lake.
   A direction, not a race.
-- **Your music** — a sound button lives inside the session, and "your
-  music" mode mutes the lake and asks iOS to mix rather than interrupt, so
-  a Spotify or YouTube playlist keeps playing. Playlist links live in
-  `js/content.js` (`MUSIC`).
+- **One sound control** — lake, bell only, quiet, or your music (which
+  mutes the lake and asks iOS to mix rather than interrupt, so a Spotify
+  or YouTube playlist keeps playing; links live in `js/content.js`).
 - **Generative sound, zero assets** — a synthesized lake (rumble, swell,
   laps), a time-of-day pad, generated reverb, breath cues, a bowl, and the
   occasional distant loon at night. Android also gets vibration pacing;

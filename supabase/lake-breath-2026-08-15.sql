@@ -59,8 +59,17 @@ create table if not exists public.lb_presence (
   app text not null check (app ~ '^[a-z0-9-]{1,40}$'),
   pid text not null check (pid ~ '^[a-z0-9]{1,16}$'),
   last_seen timestamptz not null default now(),
+  -- Glass at 8:02: each phone reports its own smoothed hand motion (0 =
+  -- glass, 1 = churn) on every beat; the lake everyone sees is as calm as
+  -- the town's hands. Averages only ever leave this table, never a row.
+  churn real check (churn is null or (churn >= 0 and churn <= 1)),
+  -- a neighbor just finished a sit: everyone sitting sees one ripple
+  finished_at timestamptz,
   primary key (app, pid)
 );
+alter table public.lb_presence add column if not exists churn real
+  check (churn is null or (churn >= 0 and churn <= 1));
+alter table public.lb_presence add column if not exists finished_at timestamptz;
 
 create index if not exists lb_presence_seen
   on public.lb_presence (app, last_seen);
@@ -111,22 +120,35 @@ language sql immutable as $$ select 16; $$;
 -- Heartbeat + count in one round trip. Returns how many OTHERS were seen
 -- in the last 75 seconds (heartbeat cadence is ~30s, so one missed beat
 -- doesn't flicker anyone away). Sweeps opportunistically ~2% of calls.
-create or replace function public.lb_beat(p_app text, p_pid text)
-returns int
+create or replace function public.lb_beat(p_app text, p_pid text, p_churn real default null)
+returns json
 language plpgsql security definer set search_path = public as $$
-declare n int;
+declare n int; calm real; fin int;
 begin
   if random() < 0.02 then
     delete from lb_presence where last_seen < now() - interval '10 minutes';
   end if;
-  insert into lb_presence (app, pid, last_seen)
-  values (p_app, p_pid, now())
-  on conflict (app, pid) do update set last_seen = now();
-  select count(*) into n from lb_presence
+  insert into lb_presence (app, pid, last_seen, churn)
+  values (p_app, p_pid, now(), least(1, greatest(0, p_churn)))
+  on conflict (app, pid) do update
+    set last_seen = now(), churn = coalesce(least(1, greatest(0, excluded.churn)), lb_presence.churn);
+  select count(*), avg(1 - churn), count(*) filter (where finished_at > now() - interval '40 seconds')
+    into n, calm, fin
+    from lb_presence
     where app = p_app and pid <> p_pid
       and last_seen > now() - interval '75 seconds';
-  return n;
+  -- n: how many others are live; calm: 0..1 average stillness of their
+  -- hands (null until somebody reports); finished: others who ended a sit
+  -- in the last beat or so
+  return json_build_object('n', n, 'calm', calm, 'finished', fin);
 end $$;
+
+-- A finished sit leaves a mark for one beat so neighbors see the ripple.
+create or replace function public.lb_finish(p_app text, p_pid text)
+returns void
+language sql security definer set search_path = public as $$
+  update lb_presence set finished_at = now() where app = p_app and pid = p_pid;
+$$;
 
 -- Count without registering (the front door peeks, only sessions beat).
 create or replace function public.lb_look(p_app text)
@@ -298,7 +320,8 @@ $$;
 
 -- ---------------------------------------------------------------- grants
 
-revoke all on function public.lb_beat(text, text) from public;
+revoke all on function public.lb_beat(text, text, real) from public;
+revoke all on function public.lb_finish(text, text) from public;
 revoke all on function public.lb_look(text) from public;
 revoke all on function public.lb_leave(text, text) from public;
 revoke all on function public.lb_wall(text) from public;
@@ -307,7 +330,8 @@ revoke all on function public.lb_send_text(text, text, text) from public;
 revoke all on function public.lb_pending(text) from public;
 revoke all on function public.lb_moderate(text, uuid, boolean) from public;
 revoke all on function public.lb_town_seconds(text) from public;
-grant execute on function public.lb_beat(text, text) to anon;
+grant execute on function public.lb_beat(text, text, real) to anon;
+grant execute on function public.lb_finish(text, text) to anon;
 grant execute on function public.lb_look(text) to anon;
 grant execute on function public.lb_leave(text, text) to anon;
 grant execute on function public.lb_wall(text) to anon;

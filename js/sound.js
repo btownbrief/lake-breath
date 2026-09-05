@@ -10,38 +10,37 @@
 
 import { nyParts } from './engine.js';
 
-let ctx = null, master = null, verb = null, layers = null;
-let enabled = true, ownMusic = false, ambientOn = false, loonTimer = 0, suspendTimer = 0;
+let ctx = null, master = null, verb = null, lakeMaster = null, lakeVerb = null, layers = null;
+let ambientOn = false, loonTimer = 0, suspendTimer = 0;
+const AUDIO_KEY = 'lakebreath-audio';
+const MODES = ['lake', 'bell', 'quiet', 'music'];
+let mode = 'lake';
+try {
+  const saved = localStorage.getItem(AUDIO_KEY);
+  if (MODES.includes(saved)) mode = saved;
+} catch { /* lake by default */ }
+const audible = () => mode === 'lake' || mode === 'bell';
 
 function setAudioSessionType() {
   try {
-    if (navigator.audioSession) navigator.audioSession.type = ownMusic ? 'ambient' : 'playback';
+    if (navigator.audioSession) navigator.audioSession.type = mode === 'music' ? 'ambient' : 'playback';
   } catch { /* absent or unavailable */ }
 }
 
-export function setOwnMusicMode(on) {
-  ownMusic = !!on;
+export function getMode() { return mode; }
+export function setMode(next) {
+  mode = MODES.includes(next) ? next : 'lake';
+  try { localStorage.setItem(AUDIO_KEY, mode); } catch { /* fine */ }
   setAudioSessionType();
-}
-
-export function soundEnabled() { return enabled; }
-export function setSoundEnabled(on) {
-  enabled = !!on;
-  if (!on) {
-    stopAmbient();
-    // silence everything already in flight (bowl tails, cues, loons)
-    if (ctx && master) {
-      try {
-        master.gain.cancelScheduledValues(ctx.currentTime);
-        master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.1);
-      } catch { /* fine */ }
-    }
-  } else if (ctx) {
-    try {
-      master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.setTargetAtTime(0.7, ctx.currentTime, 0.2);
-    } catch { /* fine */ }
-    startAmbient();
+  if (mode !== 'lake') { stopAmbient(); voiceStop(); stopCues(); }
+  if (!audible()) stopTails();
+  if (ctx) {
+    const t = ctx.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(audible() ? 0.7 : 0, t);
+    lakeMaster.gain.cancelScheduledValues(t);
+    lakeMaster.gain.setValueAtTime(mode === 'lake' ? 1 : 0, t);
+    if (mode === 'lake') startAmbient();
   }
 }
 
@@ -92,7 +91,8 @@ function lfo(freq, depth, param) {
 
 export function unlock() {
   setAudioSessionType();
-  if (!enabled) return false;
+  if (!audible()) return false;
+  clearTimeout(suspendTimer);
   try {
     if (!ctx) {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -104,8 +104,15 @@ export function unlock() {
       verb.buffer = makeImpulse();
       const verbGain = ctx.createGain(); verbGain.gain.value = 0.5;
       verb.connect(verbGain).connect(master);
+      // Lake sounds have their own wet and dry bus. Bell-only mode can
+      // silence even a cue's reverb tail without silencing the bowl.
+      lakeMaster = ctx.createGain(); lakeMaster.gain.value = mode === 'lake' ? 1 : 0;
+      lakeMaster.connect(master);
+      lakeVerb = ctx.createConvolver(); lakeVerb.buffer = verb.buffer;
+      const lakeWet = ctx.createGain(); lakeWet.gain.value = 0.5;
+      lakeVerb.connect(lakeWet).connect(lakeMaster);
       ctx.addEventListener('statechange', () => {
-        if (ctx.state === 'running' && enabled && !ambientOn) startAmbient();
+        if (ctx.state === 'running' && audible() && !ambientOn) startAmbient();
       });
     }
     if (ctx.state !== 'running') ctx.resume();
@@ -117,7 +124,7 @@ export function unlock() {
 // ------------------------------------------------------------- ambience
 
 function startAmbient() {
-  if (!ctx || ambientOn || !enabled) return;
+  if (!ctx || ambientOn || mode !== 'lake') return;
   ambientOn = true;
   const brown = makeNoise('brown'), white = makeNoise('white');
   const L = layers = { oscs: [], nodes: [] };
@@ -128,7 +135,7 @@ function startAmbient() {
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 240;
     const g = ctx.createGain(); g.gain.value = 0.055;
     L.oscs.push(lfo(0.031, 0.012, g.gain));
-    src.connect(lp).connect(g).connect(master);
+    src.connect(lp).connect(g).connect(lakeMaster);
     L.nodes.push(src, lp, g);
   }
   // 2. swell — one wave every ~12s, cutoff and gain riding the same LFO,
@@ -142,8 +149,8 @@ function startAmbient() {
     L.oscs.push(lfo(0.082, 0.035, g.gain));
     L.oscs.push(lfo(0.053, 0.018, g.gain));      // incommensurate drift
     L.oscs.push(lfo(0.017, 0.3, pan.pan));
-    src.connect(lp).connect(g).connect(pan).connect(master);
-    g.connect(verb);
+    src.connect(lp).connect(g).connect(pan).connect(lakeMaster);
+    g.connect(lakeVerb);
     L.nodes.push(src, lp, g, pan);
   }
   // 3. laps — highpassed white, gated near each swell crest
@@ -154,7 +161,7 @@ function startAmbient() {
     L.oscs.push(lfo(0.082, 0.010, g.gain));
     const pan = ctx.createStereoPanner(); pan.pan.value = 0.1;
     L.oscs.push(lfo(0.023, 0.35, pan.pan));
-    src.connect(hp).connect(g).connect(pan).connect(master);
+    src.connect(hp).connect(g).connect(pan).connect(lakeMaster);
     L.nodes.push(src, hp, g, pan);
   }
   // 4. the pad — root+fifth+octave, detuned and drifting, voiced by
@@ -168,7 +175,7 @@ function startAmbient() {
       L.oscs.push(lfo(0.05 + Math.random() * 0.06, 4, osc.detune));
       const g = ctx.createGain(); g.gain.value = amp;
       L.oscs.push(lfo(0.02 + Math.random() * 0.03, amp * 0.5, g.gain));
-      osc.connect(g).connect(verb);
+      osc.connect(g).connect(lakeVerb);
       osc.start();
       L.oscs.push(osc);
       L.nodes.push(g);
@@ -196,7 +203,7 @@ export function fadeOutAndSuspend() {
 }
 export function resumeFromGesture() {
   setAudioSessionType();
-  if (!ctx || !enabled) return;
+  if (!ctx || !audible()) return;
   clearTimeout(suspendTimer); // a rapid return must not be re-suspended
   try {
     ctx.resume();
@@ -212,7 +219,7 @@ export function resumeFromGesture() {
 // breath is, not just when it turns. Updated ~10x/sec from the app loop.
 let voice = null;
 export function voiceStart() {
-  if (!ctx || !enabled || ctx.state !== 'running' || voice) return;
+  if (!ctx || mode !== 'lake' || ctx.state !== 'running' || voice) return;
   const osc = ctx.createOscillator();
   const osc2 = ctx.createOscillator();
   const g = ctx.createGain();
@@ -221,9 +228,9 @@ export function voiceStart() {
   const g2 = ctx.createGain(); g2.gain.value = 0.35;
   g.gain.value = 0.0001;
   osc.connect(g); osc2.connect(g2).connect(g);
-  g.connect(verb);
+  g.connect(lakeVerb);
   const dry = ctx.createGain(); dry.gain.value = 0.4;
-  g.connect(dry).connect(master);
+  g.connect(dry).connect(lakeMaster);
   osc.start(); osc2.start();
   voice = { osc, osc2, g };
 }
@@ -248,8 +255,20 @@ export function voiceStop() {
 
 // A soft cue at each phase turn: inhale = rising warm tone; exhale = a
 // longer settling fall — both through the reverb so they live in the room.
+let cues = [];
+export function stopCues() {
+  for (const { osc, gain } of cues) {
+    try {
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.05);
+      osc.stop(ctx.currentTime + 0.2);
+    } catch { /* already ended */ }
+  }
+  cues = [];
+}
+
 export function cue(kind, durS = 4) {
-  if (!ctx || !enabled || ctx.state !== 'running') return;
+  if (!ctx || mode !== 'lake' || ctx.state !== 'running') return;
   const t = ctx.currentTime + 0.02;
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
@@ -258,9 +277,12 @@ export function cue(kind, durS = 4) {
   osc.frequency.setValueAtTime(base, t);
   osc.frequency.linearRampToValueAtTime(kind === 'out' ? base * 0.8 : base * 1.12, t + durS * 0.9);
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(kind === 'out' ? 0.05 : 0.04, t + 0.7);
+  g.gain.exponentialRampToValueAtTime(kind === 'out' ? 0.05 : 0.04, t + Math.min(0.7, durS * 0.35));
   g.gain.exponentialRampToValueAtTime(0.0001, t + durS);
-  osc.connect(g).connect(verb);
+  osc.connect(g).connect(lakeVerb);
+  const entry = { osc, gain: g };
+  cues.push(entry);
+  osc.onended = () => { cues = cues.filter((item) => item !== entry); };
   osc.start(t); osc.stop(t + durS + 0.2);
 }
 
@@ -269,7 +291,7 @@ export function cue(kind, durS = 4) {
 // both through the reverb so they sit out on the lake. Quiet on purpose:
 // this fires once every second or two for whole minutes.
 export function stroke() {
-  if (!ctx || !enabled || ctx.state !== 'running') return;
+  if (!ctx || mode !== 'lake' || ctx.state !== 'running') return;
   const t = ctx.currentTime + 0.01;
   // the catch: filtered noise, in and gone
   const src = ctx.createBufferSource();
@@ -281,9 +303,9 @@ export function stroke() {
   ng.gain.exponentialRampToValueAtTime(0.035, t + 0.02);
   ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
   src.connect(bp).connect(ng);
-  ng.connect(verb);
+  ng.connect(lakeVerb);
   const dry = ctx.createGain(); dry.gain.value = 0.5;
-  ng.connect(dry).connect(master);
+  ng.connect(dry).connect(lakeMaster);
   src.start(t); src.stop(t + 0.45);
   // the pull: a low sine that falls away
   const osc = ctx.createOscillator();
@@ -294,9 +316,9 @@ export function stroke() {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.055, t + 0.03);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-  osc.connect(g).connect(verb);
+  osc.connect(g).connect(lakeVerb);
   const dry2 = ctx.createGain(); dry2.gain.value = 0.45;
-  g.connect(dry2).connect(master);
+  g.connect(dry2).connect(lakeMaster);
   osc.start(t); osc.stop(t + 0.55);
 }
 
@@ -319,15 +341,15 @@ export function stopTails() {
 }
 
 // The bowl: inharmonic partials with long decays — the session's receipt.
-export function bowl() {
-  if (!ctx || !enabled || ctx.state !== 'running') return;
+export function bowl(softness = 1) {
+  if (!ctx || !audible() || ctx.state !== 'running') return;
   const t = ctx.currentTime + 0.03;
   for (const [ratio, amp, dur] of [[1, 0.32, 9], [2.71, 0.10, 6.5], [5.42, 0.045, 4.5], [1.005, 0.18, 8]]) {
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.value = 261.6 * ratio;
-    g.gain.setValueAtTime(amp, t);
+    g.gain.setValueAtTime(amp * softness, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g).connect(verb);
     osc.start(t); osc.stop(t + dur + 0.2);
@@ -340,7 +362,7 @@ export function bowl() {
 // nobody sitting with their eyes closed should be startled awake by the
 // end of their own sit. Then it holds, and takes twelve seconds to go.
 export function gong() {
-  if (!ctx || !enabled || ctx.state !== 'running') return;
+  if (!ctx || !audible() || ctx.state !== 'running') return;
   const t = ctx.currentTime + 0.03;
   const swell = 1.8, hold = 0.9, decay = 12;
   const root = 118; // a deep fundamental, low enough to feel like a room
@@ -362,7 +384,7 @@ export function gong() {
 
 // Far out on the water, sometimes, at night.
 export function maybeLoon(nightAmount) {
-  if (!ctx || !enabled || ctx.state !== 'running' || nightAmount < 0.5) return;
+  if (!ctx || mode !== 'lake' || ctx.state !== 'running' || nightAmount < 0.5) return;
   const now = performance.now() / 1000;
   if (now < loonTimer) return;
   loonTimer = now + 90 + Math.random() * 150;
@@ -379,7 +401,7 @@ export function maybeLoon(nightAmount) {
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(0.022, t + 0.4);
   g.gain.exponentialRampToValueAtTime(0.0001, t + 2.1);
-  osc.connect(g).connect(verb);
+  osc.connect(g).connect(lakeVerb);
   osc.start(t); osc.stop(t + 2.3); vib.start(t); vib.stop(t + 2.3);
 }
 
@@ -388,3 +410,5 @@ export function audioCtx() { return ctx; }
 export function releaseSession() {
   setAudioSessionType();
 }
+
+setAudioSessionType();

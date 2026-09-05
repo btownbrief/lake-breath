@@ -37,6 +37,27 @@ let hasGyro = false;
 let quietSec = 0;              // continuous seconds under the noise floor
 let resting = false;
 let liveSec = 0;               // continuous seconds above it while resting
+// Per-hand calibration: the first seconds in a hand measure that hand's
+// own tremor floor, and churn is read above it. A shaky hand is not
+// punished for its body; a very still one is not flattered by a scale
+// built for the average.
+let floorAcc = 0;              // this hand's resting deviation, m/s^2
+let calibSec = 0;              // seconds of held readings so far
+let calibrated = false;
+const CALIB_SEC = 4;
+// Lie Down: the belly tilts the phone a few degrees per breath. A slow
+// vector (about half a second) follows the chest; a much slower one
+// (about ten seconds) is the posture; the difference is the breath.
+let gvx = 0, gvy = 0, gvz = 0;    // slow gravity vector, in g
+let bvx = 0, bvy = 0, bvz = 0;    // very slow baseline
+let breathX = 0;                  // band-passed tilt signal, in g
+let breathMin = 0, breathMax = 0; // running envelope, decaying
+let breathSeeded = false;
+let breathSinceSignal = 0;        // seconds since the envelope was healthy
+// Paddle by roll: a wrist turn that peaks above ROLL_PEAK and then settles
+// is one stroke, with a refractory so a wobble is never two.
+let rollSm = 0, rollArmed = false, rollPending = 0, lastRoll = 0;
+const ROLL_PEAK = 55, ROLL_SETTLE = 22, ROLL_GAP_MS = 500;
 let motionFixture = false;   // '1' = a calm hand, 'table' = set down
 let fixtureTable = false;
 try {
@@ -84,6 +105,10 @@ export function stop() {
   mode = 'flat'; uprightBase = null;
   homeX = 0; homeY = 0; rawX = 0; rawY = 0;
   microAcc = 0; microRot = 0; quietSec = 0; liveSec = 0; resting = false;
+  floorAcc = 0; calibSec = 0; calibrated = false;
+  gvx = gvy = gvz = 0; bvx = bvy = bvz = 0; breathX = 0; breathMin = breathMax = 0;
+  breathSeeded = false; breathSinceSignal = 0;
+  rollSm = 0; rollArmed = false; rollPending = 0; lastRoll = 0;
 }
 
 // Noise floors. A phone on a hard surface sits well under both; a hand,
@@ -128,7 +153,14 @@ function onMotion(e) {
     ? (Math.abs(e.rotationRate.alpha || 0) + Math.abs(e.rotationRate.beta || 0) +
        Math.abs(e.rotationRate.gamma || 0)) / 300
     : 0;
-  const raw = Math.min(1, dev / 1.6 + rot);
+  // calibrate to this hand, then read churn above its floor
+  if (!resting && !calibrated) {
+    floorAcc += (dev - floorAcc) * (calibSec < 0.5 ? 0.5 : 0.04);
+    calibSec += dt;
+    if (calibSec >= CALIB_SEC) calibrated = true;
+  }
+  const above = Math.max(0, dev - (calibrated ? floorAcc * 1.4 : 0));
+  const raw = Math.min(1, above / 1.6 + rot);
   const rotMag = e.rotationRate
     ? Math.hypot(e.rotationRate.alpha || 0, e.rotationRate.beta || 0, e.rotationRate.gamma || 0)
     : 0;
@@ -169,6 +201,72 @@ function onMotion(e) {
   rawY += (targetY - rawY) * k;
   tiltX = rawX - homeX;
   tiltY = rawY - homeY;
+  trackBreath(a, dt);
+  trackRoll(rotMag, dt, now);
+}
+
+function trackBreath(a, dt) {
+  const gx = (a.x || 0) / 9.8, gy = (a.y || 0) / 9.8, gz = (a.z || 0) / 9.8;
+  const kf = 1 - Math.exp(-dt / 0.45);   // follows the belly
+  const ks = 1 - Math.exp(-dt / 9);      // follows the posture
+  if (!breathSeeded) { gvx = bvx = gx; gvy = bvy = gy; gvz = bvz = gz; breathSeeded = true; }
+  gvx += (gx - gvx) * kf; gvy += (gy - gvy) * kf; gvz += (gz - gvz) * kf;
+  bvx += (gvx - bvx) * ks; bvy += (gvy - bvy) * ks; bvz += (gvz - bvz) * ks;
+  // the breath is the fast vector's angle away from the slow one, signed
+  // by the axis that moves most on a phone lying on a belly (its length)
+  const dx = gvx - bvx, dy = gvy - bvy, dz = gvz - bvz;
+  const mag = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const sign = Math.abs(dy) >= Math.abs(dz) ? Math.sign(dy) : Math.sign(dz);
+  breathX = mag * (sign || 1);
+  // envelope: expands instantly, relaxes over ~12 s so a shallow breath
+  // still reads full-scale once the deep ones have faded
+  const kd = 1 - Math.exp(-dt / 12);
+  breathMax = breathX > breathMax ? breathX : breathMax + (breathX - breathMax) * kd;
+  breathMin = breathX < breathMin ? breathX : breathMin + (breathX - breathMin) * kd;
+  const span = breathMax - breathMin;
+  // a quarter of a degree of tilt, breathing-slow, is a breath; a phone
+  // on a table shows nothing and a phone in a hand shows tremor, which
+  // the half-second filter already removes
+  if (span > 0.0045 && span < 0.12) breathSinceSignal = 0; else breathSinceSignal += dt;
+}
+
+function trackRoll(rotMag, dt, now) {
+  const k = 1 - Math.exp(-dt / 0.08);
+  rollSm += (rotMag - rollSm) * k;
+  if (!rollArmed && rollSm > ROLL_PEAK) rollArmed = true;
+  if (rollArmed && rollSm < ROLL_SETTLE) {
+    rollArmed = false;
+    if (now - lastRoll > ROLL_GAP_MS) { lastRoll = now; rollPending += 1; }
+  }
+}
+
+// One stroke per settled wrist turn; the caller drains it every frame.
+export function takeRollStrokes() {
+  if (motionFixture || !listening) return 0;
+  const n = rollPending; rollPending = 0; return n;
+}
+
+// Lie Down. level 0..1 within the current breathing envelope (0.5 when
+// nothing can be read), confident while a breath-sized, breath-slow
+// signal has been seen in the last few seconds.
+export function getBreath() {
+  if (!listening) return { level: 0.5, confident: false };
+  if (motionFixture) {
+    const t = performance.now() / 1000;
+    return { level: 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 5), confident: !fixtureTable };
+  }
+  const span = breathMax - breathMin;
+  const confident = breathSinceSignal < 4 && span > 0.0045;
+  const level = confident ? Math.max(0, Math.min(1, (breathX - breathMin) / span)) : 0.5;
+  return { level, confident };
+}
+
+// Calibration state for the opening copy: 'finding' for the first seconds
+// in a hand, then 'home'. Resting or unsupported reads as 'home' so the
+// copy never waits on a sensor that will not answer.
+export function calibration() {
+  if (!listening || motionFixture) return 'home';
+  return calibrated || resting ? 'home' : 'finding';
 }
 
 // Wherever the hand is right now becomes the centre of the ring. Flat and

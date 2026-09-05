@@ -52,13 +52,13 @@ export const MUSIC = {
   youtube: '',
 };
 
-// First run only, and re-openable from Field Notes. Short lines, in order:
+// Available from Field Notes. Short lines, in order:
 // what the lake is, when the town gathers, what the practices are, what
 // grows, what happens after. Then the three phrases.
 export const GUIDE_STEPS = [
   'A living Lake Champlain. It follows Burlington’s real sky, season, and clock.',
   'Breathe anytime. At 8:02 each evening the whole town breathes together, and you can see how many neighbors are on the water with you.',
-  'Six practices. Try Paddle: tap the water in your own slow rhythm, like strokes across the lake, and let your thoughts drift while your hands keep time. Or breathe, hold the phone steady, or just sit. Steady counts a phone in a living hand, never one set down on a table; a hand is never perfectly still, and that small tremble is what you are settling. Like a walk in the park: do the simple thing, and let your best thinking arrive. Keep voice memos nearby for the ideas that surface.',
+  'Seven practices. Steady is the heart of it: hold the phone in your hand and keep the light centered; a hand is never perfectly still, and that is the point.',
   'Your maple grows on the shore with every day you show up. It never shrinks.',
   'After a sit, send a kind note to the town, and read what neighbors left for you.',
 ];
@@ -76,7 +76,7 @@ export const PLAQUES = [
   'For some people, focusing on the breath backfires. That is common and real, and the Front Porch practice is here for exactly that.',
 ];
 
-// Field Notes: the teaching page. Four notes, short and calibrated. The
+// Field Notes: the teaching page. Short and calibrated. The
 // long version lived here for a while and nobody read it.
 export const FIELD_NOTES = [
   {
@@ -84,6 +84,16 @@ export const FIELD_NOTES = [
     id: 'note-three-phrases',
     title: 'The three phrases',
     body: 'One of these sits under the greeting each day: Listen. Choose again. Devote. They are the three things this app keeps coming back to, because they are the three things worth coming back to. Listen: before anything else, notice what is actually here. The sound behind the sound, the thought behind the thought, the person in front of you. Most of what goes wrong starts with not listening. Choose again: you already chose once; that is how you got here. The gift is that you get to choose again, every breath, without needing the last choice to have been right. Begin again, but on purpose. Devote: attention, given steadily, becomes devotion. Whatever you give your minutes to is what your life is quietly becoming. Choose what deserves you, then keep showing up for it. They work in order. Listen first. Then choose again. Then devote yourself to the choice.',
+  },
+  {
+    id: 'note-never-still',
+    title: 'Why your hand is never still',
+    body: 'Hold your hand out and it shakes, a little, always. Every person has a physiological tremor at roughly eight to twelve beats a second: muscles fire in small unfused twitches, the joint they pull on rings like a plucked string, and each heartbeat gives the arm a tiny shove. In one study of 237 people aged nine to ninety-one, nine in ten had that peak. It grows with cold, caffeine, fatigue, adrenaline, and nerves, and it settles as you do. That tremor is what Steady reads. A phone on a table has none, which is why a table earns nothing here, and a hand after coffee is not failing; it is telling the truth. What you practice is not erasing the tremble. It is letting it get smaller on its own while you keep the light home.',
+  },
+  {
+    id: 'note-lie-down',
+    title: 'How Lie Down reads your breath',
+    body: 'A phone flat on your belly tilts a degree or two every time you breathe in, and the accelerometer, the same sensor Steady uses, can read that tilt. Researchers have measured breathing this way with a phone resting on the chest of someone lying on their back, and with sensors on the chest and abdomen overnight, where about four in five readings landed within two breaths a minute of a reference. The lake follows the same signal: it rises when you do. It is honest about its limits. If it cannot find a breath-sized, breath-slow movement, it says so instead of guessing, and nothing here is a medical measurement.',
   },
   {
     title: 'What this practice actually does',
@@ -109,3 +119,20 @@ export const PORCH_INTRO =
 
 export const SAFETY_LINE =
   'Keep the breath easy and never force it. If you feel lightheaded, panicky, or uncomfortable, stop and breathe normally. This is a relaxation practice, not medical treatment.';
+
+// Daily Burlington wall time, including the US daylight-saving transitions.
+export const TOWN_CALENDAR = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Btown Brief//Lake Breath//EN',
+  'CALSCALE:GREGORIAN',
+  'BEGIN:VTIMEZONE', 'TZID:America/New_York',
+  'BEGIN:DAYLIGHT', 'DTSTART:20070311T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+  'TZOFFSETFROM:-0500', 'TZOFFSETTO:-0400', 'TZNAME:EDT', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'DTSTART:20071104T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+  'TZOFFSETFROM:-0400', 'TZOFFSETTO:-0500', 'TZNAME:EST', 'END:STANDARD',
+  'END:VTIMEZONE', 'BEGIN:VEVENT', 'UID:daily-802@lake-breath.btownbrief.com',
+  'DTSTAMP:20260905T000000Z', 'DTSTART;TZID=America/New_York:20260905T200200',
+  'DURATION:PT6M', 'RRULE:FREQ=DAILY', 'SUMMARY:The 8:02 (Lake Breath)',
+  'URL:https://play.btownbrief.com/lake-breath/', 'END:VEVENT', 'END:VCALENDAR', '',
+].join('\r\n');

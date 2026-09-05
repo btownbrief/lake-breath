@@ -80,6 +80,32 @@ to the same wall clock.
   the receipt. `?motionfix=table` fakes a set-down phone for screenshots.
   `recenter()` makes the current pose home with no penalty
   (`steadyRecenter` forgives an away in progress).
+- **Lie Down** (`kind: 'breathfollow'`) reads the breath off the same
+  accelerometer: `stillness.js` tracks a half-second gravity vector against
+  a ten-second posture vector and envelopes the difference; the engine's
+  `breathFollowStep` counts followed time only while a breath-sized,
+  breath-slow signal is present. It never guesses: no signal, no credit,
+  and the meter says "Looking for your breath."
+- **Steady calibrates to the hand**: the first four seconds set that
+  hand's tremor floor and churn is read above it (`calibration()` drives
+  the "Finding your hand." line). Doing well shows as a halo that widens
+  with consecutive time home and a slow ring every half minute
+  (`bloom.calmRing`), on top of the numbers, never instead of them: the
+  owner keeps the drift count and home time on screen.
+- **Recenter is a gesture**: double-tap the water. There is no button.
+- **Sessions do not end on their own** (except the 8:02): at the target the
+  bell rings once and the clock counts up; Stop holds first (`sessionClock`
+  excludes paused time), then Resume or Done.
+- **One audio control** cycles lake / bell only / quiet / your music
+  (`sound.setMode`); the lake layers sit on their own bus so bell-only can
+  silence them without silencing the bowl. 'music' asks iOS for an
+  ambient session; every other mode keeps 'playback' so the silent switch
+  does not mute the lake.
+- **Glass at 8:02**: every presence beat carries this phone's churn
+  (`lb_beat(p_app, p_pid, p_churn)`) and returns the others' average calm
+  and how many just finished (`lb_finish`). In a town session the water is
+  churned by the town's restlessness; any finished sit ripples every open
+  lake. Averages only; the SQL never returns a row.
 - Fraunces is used with `font-variation-settings: 'SOFT' 100, 'WONK' 0`
   everywhere — the wonk axis stays off; this is a calm serif, not a
   quirky one.

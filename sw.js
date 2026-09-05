@@ -3,7 +3,7 @@
 // own path or cache prefix (this origin is shared with the whole arcade).
 // Bump VERSION on every deploy; no skipWaiting so an update can never
 // swap files out from under a running session.
-const VERSION = 'lake-breath-v10';
+const VERSION = 'lake-breath-v11';
 // mod.html is deliberately absent: the back room never gets installed on
 // anybody's phone, and it should always be the live copy.
 const SHELL = [

@@ -61,12 +61,30 @@ function pid() {
 
 // One call does everything: registers/refreshes our heartbeat and returns
 // how many OTHERS are live. Call every ~30s while a session runs.
-export async function beat() {
+// churn is this phone's smoothed hand motion (0 glass .. 1 churn) or null.
+// Returns { n, calm, finished }: others live, the average stillness of
+// their hands (0..1, null until somebody reports), and how many of them
+// ended a sit in the last beat. An older backend that still returns a bare
+// count is folded into the same shape.
+export async function beat(churn = null) {
   if (!ready || !navigator.onLine) return null;
   try {
-    const n = await rpc('lb_beat', { p_app: APP, p_pid: pid() });
-    return typeof n === 'number' ? n : null;
+    const r = await rpc('lb_beat', {
+      p_app: APP, p_pid: pid(),
+      p_churn: typeof churn === 'number' && Number.isFinite(churn) ? Math.max(0, Math.min(1, churn)) : null,
+    });
+    if (typeof r === 'number') return { n: r, calm: null, finished: 0 };
+    if (r && typeof r === 'object' && typeof r.n === 'number') {
+      return { n: r.n, calm: typeof r.calm === 'number' ? r.calm : null, finished: r.finished | 0 };
+    }
+    return null;
   } catch (e) { return offline(e); }
+}
+
+// Mark this sit as finished so neighbors still sitting see one ripple.
+export async function finish() {
+  if (!ready || !navigator.onLine) return;
+  try { await rpc('lb_finish', { p_app: APP, p_pid: pid() }); } catch { /* fine */ }
 }
 
 // A read-only look (front door): count without registering as present.

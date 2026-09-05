@@ -12,7 +12,8 @@ import {
   presenceId, presenceLine,
   PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence,
   freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase,
-  driftPhrase,
+  freshBreathFollow, breathFollowStep, breathFollowPhrase,
+  driftPhrase, sessionClock,
 } from '../js/engine.js';
 
 // A fixed reference: 2026-08-15 12:00:00 EDT == 16:00 UTC.
@@ -82,7 +83,7 @@ test('Just Sit is a plain timer, not a pacer', () => {
   // (the easiest way in for anyone who bounces off watching the breath),
   // then the plain timer, then the rest.
   assert.deepEqual(Object.keys(TECHNIQUES),
-    ['lake', 'paddle', 'timer', 'sigh', 'box', 'still', 'porch']);
+    ['lake', 'paddle', 'timer', 'sigh', 'box', 'still', 'liedown', 'porch']);
 });
 
 test('every practice duration resolves through the shared 1 to 20 minute wheel', () => {
@@ -487,4 +488,58 @@ test('resting phrase is a plain fact, and silent under ten seconds', () => {
   assert.equal(restingPhrase(0), '');
   assert.equal(restingPhrase(9.4), '');
   assert.equal(restingPhrase(42.4), 'The phone rested on something for 42 seconds. Only time in a hand counts.');
+});
+
+// ---------------------------------------------------------------- lie down
+
+function breathRun(state, seconds, fn) {
+  const dt = 1 / 20;
+  let s = state;
+  for (let t = 0; t < seconds; t += dt) s = breathFollowStep(s, { ...fn(t), dt });
+  return s;
+}
+
+test('lie down counts breaths on the upward crossing, six a minute reads as six', () => {
+  const wave = (t) => ({ level: 0.5 + 0.5 * Math.sin(t * 2 * Math.PI / 10), confident: true });
+  const s = breathRun(freshBreathFollow(), 60, wave);
+  assert.ok(Math.abs(s.followedSec - 60) < 0.2);
+  assert.ok(s.breaths === 6 || s.breaths === 7, `got ${s.breaths}`);
+  assert.equal(breathFollowPhrase(s, 60), 'The lake breathed with you the whole time, about 6 a minute.');
+});
+
+test('a wobble across the middle is not a breath', () => {
+  // three crossings inside one second
+  const jitter = (t) => ({ level: t < 0.2 ? 0.9 : t < 0.4 ? 0.1 : t < 0.6 ? 0.9 : 0.1, confident: true });
+  let s = breathRun(freshBreathFollow(), 1, jitter);
+  assert.equal(s.breaths, 1);
+});
+
+test('no confident signal earns no followed time and the phrase says so', () => {
+  const s = breathRun(freshBreathFollow(), 30, () => ({ level: 0.5, confident: false }));
+  assert.equal(s.followedSec, 0);
+  assert.ok(s.lostSec > 29);
+  assert.match(breathFollowPhrase(s, 30), /could not feel a breath/);
+});
+
+test('lie down is a practice with a kind and no segments', () => {
+  assert.equal(TECHNIQUES.liedown.kind, 'breathfollow');
+  assert.equal(TECHNIQUES.liedown.segments, undefined);
+});
+
+test('session clock counts down, reaches the target exactly, and keeps overtime', () => {
+  assert.deepEqual(sessionClock(-5000, 300), { remainingSec: 300, overtimeSec: 0, reachedTarget: false });
+  assert.deepEqual(sessionClock(299999, 300), { remainingSec: 1, overtimeSec: 0, reachedTarget: false });
+  assert.deepEqual(sessionClock(300000, 300), { remainingSec: 0, overtimeSec: 0, reachedTarget: true });
+  assert.deepEqual(sessionClock(312900, 300), { remainingSec: 0, overtimeSec: 12, reachedTarget: true });
+  assert.deepEqual(sessionClock(450000, 300), { remainingSec: 0, overtimeSec: 150, reachedTarget: true });
+});
+
+test('session clock excludes a hold before or after the target and agrees after resume', () => {
+  const before = sessionClock(120000, 300);
+  assert.deepEqual(sessionClock(420000, 300, 300000), before);
+  assert.deepEqual(sessionClock(420000 - 300000, 300), before);
+  const overtime = sessionClock(450000, 300);
+  assert.deepEqual(sessionClock(1050000, 300, 600000), overtime);
+  assert.deepEqual(sessionClock(1050000 - 600000, 300), overtime);
+  assert.deepEqual(sessionClock(1000, 300, 2000), sessionClock(0, 300));
 });
