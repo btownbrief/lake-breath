@@ -9,6 +9,7 @@ import {
   seasonFor, skyPhase, nyParts, nyMonthKey, dailyIndex,
   freshStats, loadStatsFrom, recordSession, mapleStage, skyStrip,
   presenceLine, freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase, driftPhrase,
+  freshBreathFollow, breathFollowStep, breathFollowPhrase,
 } from './engine.js';
 import {
   presetById, TOWN_CALENDAR, FIELD_NOTES, PORCH_INTRO, SAFETY_LINE,
@@ -270,6 +271,15 @@ async function refreshHome() {
   $('forecast-summary').textContent = tomorrow
     ? `Tomorrow: ${tomorrow.highF}° and ${tomorrow.short.toLowerCase()}. ` : '';
   $('greeting').textContent = greetingFor(now);
+  const sg = town.sunsetGathering(now);
+  const sl = $('sunset-line');
+  if (sg) {
+    const d = new Date(sg.whenMs);
+    const when = d.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'long', hour: 'numeric', minute: '2-digit' });
+    sl.textContent = `Sunset with neighbors ${when}${sg.venue ? `, ${sg.venue}` : ''}. `;
+    const a = document.createElement('a'); a.href = sg.url || 'https://www.meetup.com/'; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'Come watch';
+    sl.append(a); sl.hidden = false;
+  } else { sl.hidden = true; sl.textContent = ''; }
   $('mantra').textContent = MANTRAS.join(' ');
   const ts = townState(now);
   const ug = $('undergreeting');
@@ -303,7 +313,7 @@ function buildPracticePicks() {
   const wrap = $('practice-picks');
   wrap.innerHTML = '';
   for (const [key, tech] of Object.entries(TECHNIQUES)) {
-    if (key === 'still' && !still.supported()) continue;
+    if ((key === 'still' || key === 'liedown') && !still.supported()) continue;
     const b = document.createElement('button');
     b.className = 'practice-pick';
     b.setAttribute('aria-pressed', String(key === techKey));
@@ -481,8 +491,8 @@ async function startSessionInner({ town: isTown = false } = {}) {
     return;
   }
   if (!isTown) t0 = now;
-  if (tech.kind === 'still' && !steadyReady) {
-    toast('Steady needs a motion sensor. This device did not offer one.');
+  if ((tech.kind === 'still' || tech.kind === 'breathfollow') && !steadyReady) {
+    toast(`${tech.name} needs a motion sensor. This device did not offer one.`);
     return;
   }
   showSoundState();
@@ -506,24 +516,26 @@ async function startSessionInner({ town: isTown = false } = {}) {
     // Steady's accounting lives in the engine's state machine; the two
     // numbers below it are just what the meter lines read off.
     steady: freshSteady(),
-    steadyReady, steadyOn: steadyReady,
-    restToldAt: 0, awayHintDone: false, awayRun: 0,
+    // Lie Down reads the breath off the same sensor; the bubble stays out
+    // of the way (the belly is the anchor, not the hand)
+    steadyReady, steadyOn: steadyReady && tech.kind !== 'breathfollow',
+    breath: tech.kind === 'breathfollow' ? freshBreathFollow() : null, breathToldAt: 0,
+    restToldAt: 0, awayHintDone: false, awayRun: 0, homeRun: 0, calmRings: 0,
+    // Glass at 8:02: what the town's hands are doing, off the last beat
+    townCalm: null, lastTapPos: null, lastTapAt: 0,
     // Paddle: taps come in from the window listener and are judged as they
     // land, against the cadence current at that moment.
     paddle: freshPaddle(), lastTap: null,
     canoe: tech.kind === 'paddle' ? { x: 0.18, v: 0, stroke: 0, crossings: 0 } : null,
-    presenceTimer: setInterval(async () => {
-      const n = await net.beat();
-      if (session) $('presence-live').textContent = presenceLine(n ?? 0) || '';
-    }, 30000),
+    presenceTimer: setInterval(() => sendBeat(), 30000),
   };
-  net.beat().then((n) => { if (session) $('presence-live').textContent = presenceLine(n ?? 0) || ''; });
+  sendBeat();
 
   // Steady's bubble and Paddle's ripples are focus objects; the bloom
   // steps aside for those dedicated practices. Just Sit has no main focus
   // object of its own, so the
   // bloom stays exactly as it is on the home screen: gentle idle presence.
-  bloom.show(!(tech.steps || (tech.kind && tech.kind !== 'timer')));
+  bloom.show(!(tech.steps || (tech.kind && tech.kind !== 'timer' && tech.kind !== 'breathfollow')));
   bubble = null;
   $('phase-word').textContent = '';
   $('phase-sub').textContent =
@@ -531,14 +543,14 @@ async function startSessionInner({ town: isTown = false } = {}) {
       : tech.steps ? PORCH_INTRO
       : tech.kind === 'timer' ? 'The lake keeps time. Sit however you like.'
       : tech.kind === 'still' ? 'Hold the phone in your hand, flat or upright, and keep the light centered. A hand is never perfectly still. That is the point.'
+      : tech.kind === 'breathfollow' ? 'Lie on your back. Phone flat on your belly, screen up. The lake will breathe with you.'
       : tech.kind === 'paddle' ? 'Tap the water like a paddle stroke, or roll the phone gently. Each stroke moves the canoe.'
       : steadyReady ? 'Breathe with the words. Keep the light centered.'
       : 'Breathe with the words.';
   $('tap-line').textContent = '';
   const steadyBtn = $('session-steady');
-  steadyBtn.hidden = !steadyReady || tech.kind === 'still';
+  steadyBtn.hidden = !steadyReady || tech.kind === 'still' || tech.kind === 'breathfollow';
   steadyBtn.textContent = 'steady on';
-  $('session-recenter').hidden = !steadyReady;
   $('still-meter').textContent = '';
   lastRemainText = '';
   $('remaining').textContent = '';
@@ -572,8 +584,19 @@ function updateSteadyLayer(s, dt) {
   s.steady = steadyStep(s.steady, { inRing, flat: tilt.flat, churn, held, dt });
   s.stillSec = s.steady.centeredSec;
   s.drifts = s.steady.drifts;
+  // Doing well, shown as well as counted: consecutive time home widens the
+  // halo, and every half minute home sends one slow ring across the water.
+  const home = held && inRing && churn < 0.35;
+  s.homeRun = home ? s.homeRun + dt : 0;
+  bubble.calm = Math.min(1, s.homeRun / 45);
+  if (Math.floor(s.homeRun / 30) > s.calmRings) { s.calmRings = Math.floor(s.homeRun / 30); bloom.calmRing(); }
+  if (s.wasInRing && !inRing && held) wakeQuietTimer(); // the chrome comes back when you move
+  s.wasInRing = inRing;
   if (s.key === 'still') {
-    $('still-meter').textContent = held ? `home ${fmt(s.stillSec)}, ${liveDriftPhrase(s.drifts)}` : 'Set down? Steady counts a hand, not a table.';
+    const finding = still.calibration() === 'finding';
+    $('still-meter').textContent = !held ? 'Set down? Steady counts a hand, not a table.'
+      : finding ? 'Finding your hand.'
+      : `home ${fmt(s.stillSec)}, ${liveDriftPhrase(s.drifts)}`;
   } else if (!held && !s.restToldAt) {
     // the other practices get told once, quietly, the first time the phone
     // reads as resting; the meter lines belong to Steady alone
@@ -587,12 +610,33 @@ function updateSteadyLayer(s, dt) {
   if (!s.awayHintDone && s.awayRun > 6) {
     s.awayHintDone = true;
     wakeQuietTimer();
-    toast('Comfortable where your hand is? Tap recenter and that becomes home.');
+    toast('Comfortable where your hand is? Double-tap the water and that becomes home.');
   }
   if (still.spiked()) {
     scene.ripple(0.3 + Math.random() * 0.4, HORIZON + 0.1 + Math.random() * 0.2, 0.8);
   }
   return churn;
+}
+
+// Every beat carries this phone's hand motion and brings back the town's:
+// how many neighbors, how calm their hands are on average, and whether any
+// of them just finished. During the 8:02 the water everyone sees is as
+// calm as the town; a finished sit anywhere sends one ripple across every
+// lake still open.
+async function sendBeat() {
+  const s = session;
+  if (!s) return;
+  const churn = s.steadyOn ? still.getChurn() : null;
+  const r = await net.beat(churn);
+  if (!session || session !== s || !r) return;
+  s.townCalm = r.calm;
+  const line = presenceLine(r.n) || '';
+  $('presence-live').textContent = s.town && r.n > 0 && typeof r.calm === 'number' && r.calm > 0.85
+    ? line.replace(/ (is|are) breathing with you.*$/, r.n === 1 ? ' neighbor. The water is glass.' : ' neighbors. The water is glass.')
+    : line;
+  for (let i = 0; i < Math.min(3, r.finished || 0); i++) {
+    setTimeout(() => { if (session === s) scene.ripple(0.15 + Math.random() * 0.7, HORIZON + 0.04 + Math.random() * 0.1, 0.7); }, i * 900);
+  }
 }
 
 function liveDriftPhrase(n) {
@@ -667,7 +711,8 @@ function sessionFrame(nowP) {
     sound.cue('in', 0.8);
   }
   // The lobby contributes no practice or motion credit.
-  const steadyChurn = t >= 0 ? updateSteadyLayer(s, dt) : 0;
+  let steadyChurn = t >= 0 ? updateSteadyLayer(s, dt) : 0;
+  if (s.town && typeof s.townCalm === 'number') steadyChurn = Math.max(steadyChurn, (1 - s.townCalm) * 0.35);
 
   if (s.tech.steps) {
     // Front Porch: grounding prompts, water rests
@@ -675,6 +720,22 @@ function sessionFrame(nowP) {
     if (step !== s.porchStep) { s.porchStep = step; $('phase-sub').textContent = s.tech.steps[step]; sound.cue('in', 1.2); }
     updateRemaining(t, s);
     return { breath: 0.3, churn: steadyChurn };
+  }
+
+  if (s.tech.kind === 'breathfollow') {
+    // Lie Down: the belly is the pacer. The lake follows the measured
+    // breath; nothing is counted unless a breath can actually be read.
+    const b = still.getBreath();
+    s.breath = breathFollowStep(s.breath, { level: b.level, confident: b.confident, dt });
+    if (b.confident) {
+      if (!s.breathToldAt) { s.breathToldAt = performance.now(); $('still-meter').textContent = 'The lake found your breath.'; }
+      else if (performance.now() - s.breathToldAt > 6000) $('still-meter').textContent = '';
+    } else if (s.breath.lostSec > 12 && $('still-meter').textContent !== 'Looking for your breath. Lie flat, phone on your belly.') {
+      $('still-meter').textContent = 'Looking for your breath. Lie flat, phone on your belly.';
+      s.breathToldAt = 0;
+    }
+    updateRemaining(t, s);
+    return { breath: b.confident ? b.level : idleBreath(), churn: 0 };
   }
 
   if (s.tech.kind === 'timer') {
@@ -696,6 +757,8 @@ function sessionFrame(nowP) {
   }
 
   if (s.tech.kind === 'paddle') {
+    // a settled wrist roll is a stroke too, landing mid-lake
+    for (let n = still.takeRollStrokes(); n > 0; n--) paddleTap(0.5, 0.76);
     const canoe = s.canoe;
     canoe.x += canoe.v * dt;
     canoe.v *= Math.exp(-1.15 * dt);
@@ -874,6 +937,7 @@ function finishSession(completed, interrupted = false) {
     };
   }
   if (completed && practicedSec >= 30) stats.completedSessions = (stats.completedSessions || 0) + 1;
+  if (practicedSec >= 30) net.finish();
   saveStats();
   if (stats.monthKey === nyMonthKey(Date.now())) net.submitMonthSeconds(stats.monthSec);
   const after = mapleStage(stats.daysPracticed);
@@ -899,6 +963,7 @@ function finishSession(completed, interrupted = false) {
   if (practicedSec < 30) receipt.push('Even sitting down counts for something. The lake will be here.');
   else if (s.town) receipt.push('You breathed with the whole town tonight.');
   else if (s.key === 'still') receipt.push(steadyReceipt(s, practicedSec, lastSteady));
+  else if (s.key === 'liedown') receipt.push(breathFollowPhrase(s.breath, practicedSec));
   else if (s.key === 'paddle') receipt.push(paddleReceipt(tally, lastPaddle));
   else if (tally.strokes === 1) receipt.push('You made 1 paddle stroke.');
   else if (tally.strokes > 1) {
@@ -959,6 +1024,13 @@ async function refreshWall() {
     list.append(li);
     return;
   }
+  // notes that arrived since this person last sat: a reason to come back
+  // that never scolds anyone for leaving
+  let lastSeen = 0;
+  try { lastSeen = Number(localStorage.getItem('lakebreath-wall-seen') || 0); } catch { /* fine */ }
+  const fresh = lastSeen ? rows.filter((r) => Date.parse(r.at) > lastSeen).length : 0;
+  $('wall-label').textContent = fresh ? `From your neighbors. ${fresh === 1 ? '1 new note' : `${fresh} new notes`} since your last sit.` : 'From your neighbors';
+  try { localStorage.setItem('lakebreath-wall-seen', String(Date.now())); } catch { /* fine */ }
   for (const r of rows.slice(0, 5)) {
     const p = presetById(r.preset);
     const li = document.createElement('li');
@@ -1181,15 +1253,6 @@ function wire() {
     try { localStorage.setItem(SHOW_TIME_KEY, showTime ? '1' : '0'); } catch { /* fine */ }
     if (session) updateRemaining(elapsedMs(session), session);
   });
-  $('session-recenter').addEventListener('click', () => {
-    const s = session;
-    if (!s || !s.steadyOn) return;
-    still.recenter();
-    s.steady = steadyRecenter(s.steady);
-    s.awayRun = 0;
-    wakeQuietTimer();
-    toast('Home is here now.');
-  });
   $('session-steady').addEventListener('click', async () => {
     const s = session;
     if (!s) return;
@@ -1198,7 +1261,6 @@ function wire() {
       bubble = null;
       still.stop();
       $('session-steady').textContent = 'steady off';
-      $('session-recenter').hidden = true;
       return;
     }
     const ok = await still.start();
@@ -1206,7 +1268,6 @@ function wire() {
     if (!ok) { $('session-steady').hidden = true; return; }
     s.steadyOn = true;
     $('session-steady').textContent = 'steady on';
-    $('session-recenter').hidden = false;
   });
   for (const button of document.querySelectorAll('[data-audio-mode]')) {
     button.addEventListener('click', () => { wakeQuietTimer(); cycleSound(); });
@@ -1299,7 +1360,19 @@ function wire() {
     // stroke that happens to tick)
     const onControl = e.target instanceof Element &&
       e.target.closest('button, a, .sheet, .bench, .guide');
-    if (session && !onControl) paddleTap(x, y);
+    if (session && !onControl) {
+      // two taps within a third of a second, close together, make this
+      // spot home for the steady light: no button, no penalty
+      const nowT = performance.now();
+      const near = session.lastTapPos && Math.hypot(x - session.lastTapPos.x, (y - session.lastTapPos.y) * 2) < 0.12;
+      if (session.steadyOn && near && nowT - session.lastTapAt < 350) {
+        still.recenter();
+        session.steady = steadyRecenter(session.steady);
+        session.awayRun = 0; session.lastTapAt = 0;
+        toast('Home is here now.');
+      } else { session.lastTapAt = nowT; session.lastTapPos = { x, y }; }
+      paddleTap(x, y);
+    }
     else if (y > HORIZON) scene.ripple(x, y, 1);
     if (session && session.pausedAt == null && elapsedMs(session) >= 0 && !onControl) maybeHintPaddle(session.tech);
     if (session) wakeQuietTimer();

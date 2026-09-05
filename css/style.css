@@ -165,6 +165,7 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   margin-top: -6px;
   text-shadow: 0 1px 10px rgba(0, 0, 0, .45);
 }
+.sunset-line { margin-top: 2px; color: var(--gold); }
 .forecast-key a {
   color: var(--ink-soft); text-decoration: underline;
   text-decoration-color: rgba(255,255,255,.28); text-underline-offset: 3px;

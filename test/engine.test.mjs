@@ -524,6 +524,7 @@ test('no confident signal earns no followed time and the phrase says so', () => 
 test('lie down is a practice with a kind and no segments', () => {
   assert.equal(TECHNIQUES.liedown.kind, 'breathfollow');
   assert.equal(TECHNIQUES.liedown.segments, undefined);
+});
 
 test('session clock counts down, reaches the target exactly, and keeps overtime', () => {
   assert.deepEqual(sessionClock(-5000, 300), { remainingSec: 300, overtimeSec: 0, reachedTarget: false });

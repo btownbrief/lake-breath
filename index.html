@@ -53,6 +53,7 @@
       <button class="mantra" id="mantra" title="What the three phrases mean">Listen. Choose again. Devote.</button>
       <p class="undergreeting" id="undergreeting" aria-live="polite"></p>
       <p class="forecast-key"><span id="forecast-summary"></span><a href="https://guide.btownbrief.com/weather.html" target="_blank" rel="noopener">Full forecast</a></p>
+      <p class="forecast-key sunset-line" id="sunset-line" hidden></p>
       <div class="begin-row">
         <button class="begin" id="begin">Breathe</button>
         <div class="practice-controls">
@@ -70,7 +71,6 @@
     <div class="session-options">
       <div class="session-buttons">
         <button class="session-steady" id="session-steady" hidden>steady on</button>
-        <button class="session-steady" id="session-recenter" hidden>recenter</button>
         <button class="session-steady" data-audio-mode>sound: lake</button>
       </div>
     </div>
@@ -97,7 +97,7 @@
       <span class="gn-why" id="gn-why"></span>
     </div>
     <div class="wall">
-      <span class="wall-label">From your neighbors</span>
+      <span class="wall-label" id="wall-label">From your neighbors</span>
       <ul id="wall-list"></ul>
       <button class="send-note" id="send-note">Send a kind note to the town</button>
       <p class="note-sent" id="note-sent" aria-live="polite"></p>
