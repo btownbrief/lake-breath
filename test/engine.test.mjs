@@ -13,7 +13,7 @@ import {
   PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence,
   freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase,
   freshBreathFollow, breathFollowStep, breathFollowPhrase,
-  driftPhrase,
+  driftPhrase, sessionClock,
 } from '../js/engine.js';
 
 // A fixed reference: 2026-08-15 12:00:00 EDT == 16:00 UTC.
@@ -524,4 +524,21 @@ test('no confident signal earns no followed time and the phrase says so', () => 
 test('lie down is a practice with a kind and no segments', () => {
   assert.equal(TECHNIQUES.liedown.kind, 'breathfollow');
   assert.equal(TECHNIQUES.liedown.segments, undefined);
+
+test('session clock counts down, reaches the target exactly, and keeps overtime', () => {
+  assert.deepEqual(sessionClock(-5000, 300), { remainingSec: 300, overtimeSec: 0, reachedTarget: false });
+  assert.deepEqual(sessionClock(299999, 300), { remainingSec: 1, overtimeSec: 0, reachedTarget: false });
+  assert.deepEqual(sessionClock(300000, 300), { remainingSec: 0, overtimeSec: 0, reachedTarget: true });
+  assert.deepEqual(sessionClock(312900, 300), { remainingSec: 0, overtimeSec: 12, reachedTarget: true });
+  assert.deepEqual(sessionClock(450000, 300), { remainingSec: 0, overtimeSec: 150, reachedTarget: true });
+});
+
+test('session clock excludes a hold before or after the target and agrees after resume', () => {
+  const before = sessionClock(120000, 300);
+  assert.deepEqual(sessionClock(420000, 300, 300000), before);
+  assert.deepEqual(sessionClock(420000 - 300000, 300), before);
+  const overtime = sessionClock(450000, 300);
+  assert.deepEqual(sessionClock(1050000, 300, 600000), overtime);
+  assert.deepEqual(sessionClock(1050000 - 600000, 300), overtime);
+  assert.deepEqual(sessionClock(1000, 300, 2000), sessionClock(0, 300));
 });

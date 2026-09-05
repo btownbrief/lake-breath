@@ -112,6 +112,17 @@ export function minutesFor(tech, saved) {
   return Math.min(PRACTICE_MINUTES.max, Math.max(PRACTICE_MINUTES.min, mins));
 }
 
+// tMs is elapsed wall time from the session origin. pausedMs removes time
+// currently on hold; on resume the controller moves the origin forward.
+export function sessionClock(tMs, targetSec, pausedMs = 0) {
+  const elapsedSec = Math.max(0, tMs - Math.max(0, pausedMs)) / 1000;
+  return {
+    remainingSec: Math.max(0, Math.ceil(targetSec - elapsedSec)),
+    overtimeSec: Math.max(0, Math.floor(elapsedSec - targetSec)),
+    reachedTarget: elapsedSec >= targetSec,
+  };
+}
+
 export function cycleMs(tech) {
   return tech.segments.reduce((a, s) => a + s.s, 0) * 1000;
 }
