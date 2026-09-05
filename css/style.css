@@ -281,6 +281,10 @@ body[data-view="session"] .session-layer { opacity: 1; }
 /* Steady: the target ring is drawn at screen centre, so the counters step
    down below it. Nothing may sit inside the ring. */
 body[data-practice="still"] .still-meter { margin-top: 24vh; }
+/* the session's own controls exist only during a session: off the front
+   view they are invisible AND untouchable, or Stop would sit over the
+   practice chips and eat their taps */
+body:not([data-view="session"]) .session-layer button { pointer-events: none; }
 .session-stop { margin-top: auto; display: flex; gap: 12px; position: relative; z-index: 2; }
 .stop[hidden] { display: none; }
 body[data-quiet="true"] .session-stop .stop { pointer-events: none; }
