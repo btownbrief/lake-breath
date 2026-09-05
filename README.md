@@ -14,19 +14,30 @@ Live (once deployed): https://play.btownbrief.com/lake-breath/
   exhale-weighted (in 4, out 6), no holds. Plus **Quick Sigh** (cyclic
   sighing, ~90s reset), **Box**, and **Front Porch** (eyes-open grounding
   for the many people breath-focus doesn't suit).
-- **A living lake** — a WebGL shader scene (real moving water, sun/moon
-  glitter path, stars, Adirondack ridges) that follows Burlington's actual
-  clock and season, swells with the breath, and ripples where you touch it.
+- **A living lake under a real sky** — Stephen's own Lake Champlain
+  photographs fill the sky by time of day (a different one each Burlington
+  day; the painted starfield keeps the night), and a WebGL shader lake
+  below mirrors them: real moving water, sun glitter, ripples where you
+  touch it, swelling with the breath.
   The hero object is **the bloom**: six translucent petals on the water
   that open with the inhale and settle on the long exhale; at session end
   they release and drift out over the water as a synthesized bowl rings.
 - **Steady** — an accelerometer layer in every session by default. Hold the
   phone flat or upright and keep the light centered; the receipt reports
-  movement as a plain fact. It silently disappears without a sensor and
-  can be turned off for a session.
+  movement as a plain fact. It counts a hand, not a table: a phone set
+  down reads as resting and earns nothing, and it says so. A recenter
+  button makes wherever your hand has settled the new home, no penalty.
+  It silently disappears without a sensor and can be turned off for a
+  session.
 - **Paddle strokes everywhere** — breathing prompts, the centered light,
   and water taps can all run together. Each tap ripples the lake and joins
-  the live rhythm count; Paddle remains the dedicated tapping practice.
+  the live rhythm count; Paddle remains the dedicated tapping practice,
+  and there a canoe glides forward with every stroke and crosses the lake.
+  A direction, not a race.
+- **Your music** — a sound button lives inside the session, and "your
+  music" mode mutes the lake and asks iOS to mix rather than interrupt, so
+  a Spotify or YouTube playlist keeps playing. Playlist links live in
+  `js/content.js` (`MUSIC`).
 - **Generative sound, zero assets** — a synthesized lake (rumble, swell,
   laps), a time-of-day pad, generated reverb, breath cues, a bowl, and the
   occasional distant loon at night. Android also gets vibration pacing;

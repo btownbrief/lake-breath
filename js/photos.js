@@ -10,11 +10,11 @@
 // shader's stars are the better night.
 
 export const PHOTOS = [
-  { file: 'golden-dock.jpg',    horizon: 0.72, cx: 0.55, pool: 'golden' },
+  { file: 'golden-dock.jpg',    horizon: 0.71, cx: 0.55, pool: 'golden' },
   { file: 'golden-sail.jpg',    horizon: 0.53, cx: 0.55, pool: 'golden' },
   { file: 'golden-sun.jpg',     horizon: 0.56, cx: 0.22, pool: 'golden' },
   { file: 'golden-streaks.jpg', horizon: 0.60, cx: 0.50, pool: 'golden', seasons: ['stick', 'winter', 'mud'] },
-  { file: 'dusk-pink.jpg',      horizon: 0.595, cx: 0.45, pool: 'dusk' },
+  { file: 'dusk-pink.jpg',      horizon: 0.575, cx: 0.45, pool: 'dusk' },
   { file: 'dusk-embers.jpg',    horizon: 0.75, cx: 0.50, pool: 'dusk' },
   { file: 'dusk-pale.jpg',      horizon: 0.61, cx: 0.50, pool: 'dusk', seasons: ['winter', 'mud', 'stick'] },
   { file: 'dusk-winter.jpg',    horizon: 0.70, cx: 0.50, pool: 'dusk', seasons: ['winter', 'stick'] },

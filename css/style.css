@@ -166,9 +166,10 @@ body[data-view="end"] .home-lower { opacity: 0; pointer-events: none; transform:
   text-shadow: 0 1px 10px rgba(0, 0, 0, .45);
 }
 .forecast-key a {
-  color: var(--ink-soft); text-decoration: none;
+  color: var(--ink-soft); text-decoration: underline;
+  text-decoration-color: rgba(255,255,255,.28); text-underline-offset: 3px;
 }
-.forecast-key a:hover, .forecast-key a:focus-visible { text-decoration: underline; }
+.forecast-key a:hover, .forecast-key a:focus-visible { color: var(--ink); text-decoration-color: currentColor; }
 
 .begin-row { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .begin {

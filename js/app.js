@@ -20,7 +20,11 @@ import * as net from './net.js';
 import * as still from './stillness.js';
 import * as town from './town.js';
 import { LakeScene, palette, celestial } from './scene-gl.js';
-import { pickPhoto, loadPhoto } from './photos.js';
+import { PHOTOS, pickPhoto, loadPhoto } from './photos.js';
+// Screenshot-only: ?photofix=<file> pins one real sky so each photograph
+// can be checked against the waterline. Absent in production use.
+let photoFix = '';
+try { photoFix = new URLSearchParams(location.search).get('photofix') || ''; } catch { /* fine */ }
 import { Bloom } from './bloom.js';
 
 const $ = (id) => document.getElementById(id);
@@ -154,7 +158,7 @@ function sceneState(nowMs, breath, churn) {
       : (phaseNow === 'dawn' || phaseNow === 'dusk' || phaseNow === 'golden') ? 0.78
       : 1;
     const tintWeather = tomorrow ? { ...tomorrow, deltaF: tomorrow.deltaF * tintScale } : null;
-    wantPhoto(pickPhoto(phaseNow, season, dailyIndex(nowMs, 97)));
+    wantPhoto(photoFix ? PHOTOS.find((e) => e.file === photoFix) || null : pickPhoto(phaseNow, season, dailyIndex(nowMs, 97)));
     let base = palette(phaseNow, phaseSoon, blend, season);
     const pc = photoHave && photoHave.entry === photoWant ? photoHave.colors : null;
     if (pc) {
