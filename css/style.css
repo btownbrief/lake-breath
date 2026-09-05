@@ -248,11 +248,7 @@ body[data-view="session"] .session-layer { opacity: 1; }
   display: flex; flex-direction: column; align-items: center; gap: 7px;
   margin-top: 8px; max-width: 34ch;
 }
-.session-buttons { display: flex; align-items: center; justify-content: center; gap: 7px; }
-.session-instruction {
-  font-size: .82rem; line-height: 1.4; color: var(--ink-soft);
-  text-align: center; text-shadow: 0 1px 12px rgba(0,0,0,.55);
-}
+.session-buttons { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 7px; }
 .session-steady {
   pointer-events: auto; cursor: pointer;
   background: rgba(7, 11, 17, .42); color: var(--ink-soft);
@@ -268,6 +264,7 @@ body[data-view="session"] .session-layer { opacity: 1; }
   text-shadow: 0 1px 12px rgba(0,0,0,.55);
 }
 .remaining {
+  background: none; border: 0; padding: 6px; cursor: pointer; pointer-events: auto; font-family: var(--sans);
   margin-top: 6px;
   font-size: .8rem; color: var(--ink-faint);
   font-variant-numeric: tabular-nums;
@@ -280,15 +277,15 @@ body[data-view="session"] .session-layer { opacity: 1; }
   margin-top: 8px; font-size: .85rem; color: var(--ink-soft); min-height: 1.4em;
   font-variant-numeric: tabular-nums;
 }
-.drift-line {
-  margin-top: 2px; font-size: .78rem; color: var(--ink-faint); min-height: 1.3em;
-  font-variant-numeric: tabular-nums;
-}
 /* Steady: the target ring is drawn at screen centre, so the counters step
    down below it. Nothing may sit inside the ring. */
 body[data-practice="still"] .still-meter { margin-top: 24vh; }
+.session-stop { margin-top: auto; display: flex; gap: 12px; position: relative; z-index: 2; }
+.stop[hidden] { display: none; }
+body[data-quiet="true"] .session-stop .stop { pointer-events: none; }
+.remaining:focus-visible { outline: 1px solid var(--gold); outline-offset: 2px; }
 .stop {
-  margin-top: auto; pointer-events: auto;
+  pointer-events: auto;
   background: rgba(5, 9, 14, .50); border: 1px solid rgba(255,255,255,.20); cursor: pointer;
   font-family: var(--sans); font-size: .9rem; color: rgba(255,255,255,.88);
   padding: 9px 22px; border-radius: 18px;
@@ -333,13 +330,6 @@ body[data-view="end"] .end-layer { opacity: 1; pointer-events: auto; }
 }
 .end-sub { margin-top: 8px; color: var(--ink-soft); font-size: .98rem; max-width: 34ch; }
 .end-grow { margin-top: 4px; color: var(--gold); font-size: .9rem; min-height: 1.4em; }
-.plaque {
-  margin-top: 16px; max-width: 38ch;
-  font-family: var(--serif); font-style: italic; font-weight: 340;
-  font-variation-settings: 'SOFT' 100, 'WONK' 0;
-  font-size: 1.02rem; line-height: 1.5; color: var(--ink-soft);
-}
-.plaque a { color: var(--ink-faint); font-family: var(--sans); font-style: normal; font-size: .8rem; text-decoration: none; border-bottom: 1px solid var(--ink-faint); margin-left: 6px; }
 
 .wall { margin-top: 18px; max-width: 46ch; }
 .wall-label { font-size: .74rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); font-weight: 550; }
@@ -363,7 +353,9 @@ body[data-view="end"] .end-layer { opacity: 1; pointer-events: auto; }
   transition: transform .5s var(--spring);
 }
 .end-actions .primary:active { transform: scale(.965); }
-.felt-worse { margin-top: 14px; background: none; border: 0; cursor: pointer; padding: 2px 0;
+.after-row { display: flex; gap: 20px; margin-top: 14px; }
+.after-row[hidden] { display: none; }
+.after-row button { background: none; border: 0; cursor: pointer; padding: 2px 0;
   font-size: .8rem; color: var(--ink-faint); font-family: var(--sans); }
 
 /* staggered entrance for the receipt */
@@ -408,36 +400,15 @@ body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
   color: var(--ink-faint); font-size: 1rem; font-family: var(--sans); padding: 6px;
 }
 
-/* practice sheet rows */
-.practice-row {
-  width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
-  padding: 14px 0; border-top: 1px solid rgba(255,255,255,.08);
-  display: flex; flex-direction: column; gap: 2px;
-  font-family: var(--sans); color: var(--ink);
-}
-.practice-row:first-of-type { border-top: 0; margin-top: 8px; }
-.practice-row .name {
-  font-family: var(--serif); font-variation-settings: 'SOFT' 100, 'WONK' 0;
-  font-size: 1.15rem; font-weight: 420;
-}
-.practice-row[aria-pressed="true"] .name { color: var(--gold); }
-.practice-row .tag { font-size: .85rem; color: var(--ink-soft); }
-.own-music {
-  margin-top: 14px; padding-top: 14px;
-  border-top: 1px solid rgba(255,255,255,.08);
-}
-.own-music p { font-size: .85rem; color: var(--ink-soft); }
-.music-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-top: 8px; }
-.music-link, .own-music-toggle {
-  background: none; border: 0; padding: 3px 0; cursor: pointer;
-  font-family: var(--sans); font-size: .8rem; color: var(--ink-faint);
-  text-decoration: none;
-}
-.music-link[hidden] { display: none; }
-.music-link:hover, .music-link:focus-visible,
-.own-music-toggle:hover, .own-music-toggle:focus-visible {
-  color: var(--ink); text-decoration: underline; outline: none;
-}
+/* Selected practice and the shared audio preference. */
+.practice-tag { font-size: .85rem; color: var(--ink-soft); }
+#practice-sheet h2 { padding-right: 48px; }
+#practice-sheet .safety { margin-top: 16px; font-size: .74rem; }
+.shore-controls { margin-top: 18px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.music-actions { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.music-actions[hidden], .music-link[hidden] { display: none; }
+.music-link { font-size: .8rem; color: var(--ink-faint); text-decoration: none; }
+.music-link:hover, .music-link:focus-visible { color: var(--ink); text-decoration: underline; }
 /* Every practice's minute dial: a scroll-snapped row of numbers, the centred one
    being the choice. The mask fades the ends so it reads as a wheel that
    continues past the edges rather than a list that stops. */
@@ -499,7 +470,7 @@ body[data-view="end"] .end-layer > *:nth-child(8) { animation-delay: .88s; }
 .note-send[disabled] { opacity: .5; }
 .note-sub { margin-top: 10px; font-size: .8rem; color: var(--ink-faint); max-width: 40ch; }
 
-/* good news from the neighborhood: the plaque's slot, in the sans voice */
+/* Good news from the neighborhood, in the sans voice. */
 .goodnews { margin-top: 16px; max-width: 44ch; display: flex; flex-direction: column; gap: 3px; }
 .goodnews[hidden] { display: none; }
 .gn-label {

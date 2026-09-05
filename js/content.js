@@ -52,13 +52,13 @@ export const MUSIC = {
   youtube: '',
 };
 
-// First run only, and re-openable from Field Notes. Short lines, in order:
+// Available from Field Notes. Short lines, in order:
 // what the lake is, when the town gathers, what the practices are, what
 // grows, what happens after. Then the three phrases.
 export const GUIDE_STEPS = [
   'A living Lake Champlain. It follows Burlington’s real sky, season, and clock.',
   'Breathe anytime. At 8:02 each evening the whole town breathes together, and you can see how many neighbors are on the water with you.',
-  'Six practices. Try Paddle: tap the water in your own slow rhythm, like strokes across the lake, and let your thoughts drift while your hands keep time. Or breathe, hold the phone steady, or just sit. Steady counts a phone in a living hand, never one set down on a table; a hand is never perfectly still, and that small tremble is what you are settling. Like a walk in the park: do the simple thing, and let your best thinking arrive. Keep voice memos nearby for the ideas that surface.',
+  'Seven practices. Steady is the heart of it: hold the phone in your hand and keep the light centered; a hand is never perfectly still, and that is the point.',
   'Your maple grows on the shore with every day you show up. It never shrinks.',
   'After a sit, send a kind note to the town, and read what neighbors left for you.',
 ];
@@ -109,3 +109,20 @@ export const PORCH_INTRO =
 
 export const SAFETY_LINE =
   'Keep the breath easy and never force it. If you feel lightheaded, panicky, or uncomfortable, stop and breathe normally. This is a relaxation practice, not medical treatment.';
+
+// Daily Burlington wall time, including the US daylight-saving transitions.
+export const TOWN_CALENDAR = [
+  'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Btown Brief//Lake Breath//EN',
+  'CALSCALE:GREGORIAN',
+  'BEGIN:VTIMEZONE', 'TZID:America/New_York',
+  'BEGIN:DAYLIGHT', 'DTSTART:20070311T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+  'TZOFFSETFROM:-0500', 'TZOFFSETTO:-0400', 'TZNAME:EDT', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'DTSTART:20071104T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+  'TZOFFSETFROM:-0400', 'TZOFFSETTO:-0500', 'TZNAME:EST', 'END:STANDARD',
+  'END:VTIMEZONE', 'BEGIN:VEVENT', 'UID:daily-802@lake-breath.btownbrief.com',
+  'DTSTAMP:20260905T000000Z', 'DTSTART;TZID=America/New_York:20260905T200200',
+  'DURATION:PT6M', 'RRULE:FREQ=DAILY', 'SUMMARY:The 8:02 (Lake Breath)',
+  'URL:https://play.btownbrief.com/lake-breath/', 'END:VEVENT', 'END:VCALENDAR', '',
+].join('\r\n');

@@ -43,7 +43,8 @@
       <span class="wordmark">Lake Breath</span>
       <span class="toplinks">
         <button class="tbtn" id="open-shore">your shore</button>
-        <button class="tbtn" id="open-bench">notes</button>
+        <button class="tbtn" id="open-bench">field notes</button>
+        <button class="tbtn" data-audio-mode>sound: lake</button>
       </span>
     </div>
 
@@ -51,7 +52,7 @@
       <h1 class="greeting" id="greeting">Good evening.</h1>
       <button class="mantra" id="mantra" title="What the three phrases mean">Listen. Choose again. Devote.</button>
       <p class="undergreeting" id="undergreeting" aria-live="polite"></p>
-      <p class="forecast-key">The sky shows tomorrow. Red is warmer, blue is cooler. <a href="https://guide.btownbrief.com/weather.html" target="_blank" rel="noopener">Full forecast</a></p>
+      <p class="forecast-key"><span id="forecast-summary"></span><a href="https://guide.btownbrief.com/weather.html" target="_blank" rel="noopener">Full forecast</a></p>
       <div class="begin-row">
         <button class="begin" id="begin">Breathe</button>
         <div class="practice-controls">
@@ -59,28 +60,29 @@
           <button class="duration-control" id="duration-control" aria-label="Choose practice duration">5 min</button>
         </div>
       </div>
-      <p class="safety" id="safety-line"></p>
     </div>
   </div>
 
   <!-- --------------------------------------------------------- session -->
   <div class="session-layer" aria-label="Session">
-    <p class="phase-word" id="phase-word"></p>
+    <p class="phase-word" id="phase-word" aria-live="polite"></p>
     <p class="phase-sub" id="phase-sub"></p>
     <div class="session-options">
-      <p class="session-instruction" id="session-instruction"></p>
       <div class="session-buttons">
         <button class="session-steady" id="session-steady" hidden>steady on</button>
         <button class="session-steady" id="session-recenter" hidden>recenter</button>
-        <button class="session-steady" id="session-sound">sound on</button>
+        <button class="session-steady" data-audio-mode>sound: lake</button>
       </div>
     </div>
     <p class="tap-line" id="tap-line"></p>
-    <p class="remaining" id="remaining"></p>
+    <button class="remaining" id="remaining" type="button"></button>
     <p class="presence-live" id="presence-live" aria-live="polite"></p>
     <p class="still-meter" id="still-meter"></p>
-    <p class="drift-line" id="drift-line"></p>
-    <button class="stop chrome" id="stop">stop</button>
+    <div class="session-stop chrome">
+      <button class="stop" id="stop">stop</button>
+      <button class="stop" id="resume" hidden>Resume</button>
+      <button class="stop" id="session-done" hidden>Done</button>
+    </div>
     <div id="tick-zone"></div>
   </div>
 
@@ -89,7 +91,6 @@
     <h2 class="end-big" id="end-big"></h2>
     <p class="end-sub" id="end-sub"></p>
     <p class="end-grow" id="end-grow"></p>
-    <p class="plaque" id="plaque" hidden></p>
     <div class="goodnews" id="goodnews" hidden>
       <span class="gn-label">Good news from the neighborhood</span>
       <a class="gn-title" id="gn-title" target="_blank" rel="noopener"></a>
@@ -105,22 +106,20 @@
       <button class="primary" id="end-done">Done</button>
       <button class="tbtn" id="end-again">again</button>
     </div>
-    <button class="felt-worse" id="felt-worse">that felt bad, actually</button>
+    <div class="after-row" id="after-row">
+      <button data-after="calmer">calmer</button>
+      <button data-after="same">same</button>
+      <button data-after="worse">worse</button>
+    </div>
   </div>
 
   <!-- ---------------------------------------------------------- sheets -->
   <div class="sheet" id="practice-sheet" data-open="false" inert role="dialog" aria-label="Choose a practice">
     <button class="close" data-close="practice-sheet">close</button>
-    <h2>A practice</h2>
-    <div id="practice-rows"></div>
-    <div class="own-music">
-      <p>Play your own playlist and the lake goes quiet.</p>
-      <div class="music-actions">
-        <a class="music-link" id="music-spotify" target="_blank" rel="noopener" hidden>Open Spotify</a>
-        <a class="music-link" id="music-youtube" target="_blank" rel="noopener" hidden>Open YouTube</a>
-        <button class="own-music-toggle" id="own-music-toggle">your music: off</button>
-      </div>
-    </div>
+    <h2 id="practice-name"></h2>
+    <p class="practice-tag" id="practice-tag"></p>
+    <div id="practice-dial"></div>
+    <p class="safety" id="safety-line"></p>
   </div>
 
   <div class="sheet" id="note-sheet" data-open="false" inert role="dialog" aria-label="Send a kind note">
@@ -145,7 +144,17 @@
     <p class="shore-line" id="maple-line"></p>
     <p class="shore-line" id="anchor-line"></p>
     <p class="shore-line" id="town-line"></p>
+    <p class="shore-line" id="after-line" hidden></p>
+    <div class="shore-controls">
+      <button class="tbtn" data-audio-mode>sound: lake</button>
+      <div class="music-actions" id="music-links" hidden>
+        <a class="music-link" id="music-spotify" target="_blank" rel="noopener" hidden>Open Spotify</a>
+        <a class="music-link" id="music-youtube" target="_blank" rel="noopener" hidden>Open YouTube</a>
+      </div>
+      <button class="tbtn" id="forecast-toggle">forecast sky</button>
+    </div>
     <div class="shore-foot">
+      <a id="town-calendar" download="lake-breath-802.ics">add the 8:02 to your calendar</a>
       <a href="https://guide.btownbrief.com/weather.html" target="_blank" rel="noopener">Full forecast</a>
       <a href="https://play.btownbrief.com/">Btown Brief arcade</a>
       <button class="reset" id="reset-history">reset this device</button>
@@ -174,7 +183,7 @@
     </div>
   </div>
 
-  <!-- ------------------------------------------------------- first run -->
+  <!-- ----------------------------------------------------------- guide -->
   <div class="guide" id="guide" data-open="false" inert role="dialog" aria-label="Welcome to the lake">
     <div class="guide-inner">
       <h2 id="guide-title">Welcome to the lake</h2>

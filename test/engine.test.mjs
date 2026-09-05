@@ -12,7 +12,7 @@ import {
   presenceId, presenceLine,
   PADDLE_MIN_MS, PADDLE_MAX_MS, paddleOnRhythm, paddleCadence,
   freshPaddle, paddleStroke, freshSteady, steadyStep, steadyRecenter, restingPhrase,
-  driftPhrase,
+  driftPhrase, sessionClock,
 } from '../js/engine.js';
 
 // A fixed reference: 2026-08-15 12:00:00 EDT == 16:00 UTC.
@@ -487,4 +487,23 @@ test('resting phrase is a plain fact, and silent under ten seconds', () => {
   assert.equal(restingPhrase(0), '');
   assert.equal(restingPhrase(9.4), '');
   assert.equal(restingPhrase(42.4), 'The phone rested on something for 42 seconds. Only time in a hand counts.');
+});
+
+
+test('session clock counts down, reaches the target exactly, and keeps overtime', () => {
+  assert.deepEqual(sessionClock(-5000, 300), { remainingSec: 300, overtimeSec: 0, reachedTarget: false });
+  assert.deepEqual(sessionClock(299999, 300), { remainingSec: 1, overtimeSec: 0, reachedTarget: false });
+  assert.deepEqual(sessionClock(300000, 300), { remainingSec: 0, overtimeSec: 0, reachedTarget: true });
+  assert.deepEqual(sessionClock(312900, 300), { remainingSec: 0, overtimeSec: 12, reachedTarget: true });
+  assert.deepEqual(sessionClock(450000, 300), { remainingSec: 0, overtimeSec: 150, reachedTarget: true });
+});
+
+test('session clock excludes a hold before or after the target and agrees after resume', () => {
+  const before = sessionClock(120000, 300);
+  assert.deepEqual(sessionClock(420000, 300, 300000), before);
+  assert.deepEqual(sessionClock(420000 - 300000, 300), before);
+  const overtime = sessionClock(450000, 300);
+  assert.deepEqual(sessionClock(1050000, 300, 600000), overtime);
+  assert.deepEqual(sessionClock(1050000 - 600000, 300), overtime);
+  assert.deepEqual(sessionClock(1000, 300, 2000), sessionClock(0, 300));
 });
